@@ -62,6 +62,15 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3:1.3.0")
+    
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+    
+    // Extended Icons
+    implementation("androidx.compose.material:material-icons-extended:1.6.3")
+    
+    // Coil for image loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
 
     // ---- Needed for our app ----
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
