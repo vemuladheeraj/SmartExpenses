@@ -1,8 +1,7 @@
 package com.dheeraj.smartexpenses.ui
 
-
-
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dheeraj.smartexpenses.data.AppDb
@@ -18,7 +17,19 @@ import java.util.Locale
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeVm(app: Application) : AndroidViewModel(app) {
-    private val dao = AppDb.get(app).txnDao()
+    
+    init {
+        try {
+            Log.d("HomeVm", "Initializing HomeViewModel...")
+            AppDb.get(getApplication()).txnDao()
+            Log.d("HomeVm", "Database initialized successfully")
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error initializing database", e)
+            e.printStackTrace()
+        }
+    }
+    
+    private val dao = AppDb.get(getApplication()).txnDao()
 
     private val now = MutableStateFlow(System.currentTimeMillis())
     fun refresh() { now.value = System.currentTimeMillis() }
@@ -54,35 +65,156 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     val totalCredit = range.flatMapLatest { (s,e) -> dao.totalCredits(s,e) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
+    // Get all transactions for the last 6 months
+    val allItems = dao.inRange(
+        Calendar.getInstance().apply { add(Calendar.MONTH, -6) }.timeInMillis,
+        System.currentTimeMillis()
+    ).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    // Get total credits and debits for 6 months (excluding inter-account transfers)
+    val totalDebit6Months = allItems.map { transactions ->
+        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
+            .sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
+
+    val totalCredit6Months = allItems.map { transactions ->
+        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
+            .sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
+
+    // Get current month totals excluding transfers
+    val totalDebitCurrentMonth = items.map { transactions ->
+        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
+            .sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
+
+    val totalCreditCurrentMonth = items.map { transactions ->
+        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
+            .sumOf { it.amount }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
+
+    // Helper function to detect inter-account transfers
+    private fun isInterAccountTransfer(transaction: Transaction): Boolean {
+        // Check if it's marked as TRANSFER type
+        if (transaction.type == "TRANSFER") return true
+        
+        val body = transaction.rawBody.lowercase()
+        
+        // Common patterns for inter-account transfers
+        val transferKeywords = listOf(
+            "transfer", "transferred", "moved", "shifted", "account to account",
+            "a/c transfer", "account transfer", "internal transfer", "self transfer",
+            "own account", "same bank", "intra bank", "inter account"
+        )
+        
+        return transferKeywords.any { body.contains(it) } ||
+               (transaction.merchant?.lowercase()?.contains("transfer") == true) ||
+               (transaction.channel?.lowercase()?.contains("transfer") == true) ||
+               (body.contains("credited") && body.contains("debited")) ||
+               (body.contains("from") && body.contains("to") && 
+                (body.contains("account") || body.contains("a/c")))
+    }
+
     /** Manual add */
     fun addManual(amount: Double, type: String, merchant: String?, channel: String?, whenTs: Long = System.currentTimeMillis()) {
         viewModelScope.launch(Dispatchers.IO) {
-            val t = Transaction(
-                ts = whenTs,
-                amount = amount,
-                type = type.uppercase(Locale.getDefault()),
-                channel = channel,
-                merchant = merchant,
-                accountTail = null,
-                bank = null,
-                source = "MANUAL",
-                rawSender = "MANUAL",
-                rawBody = ""
-            )
-            dao.insert(t)
+            try {
+                val t = Transaction(
+                    ts = whenTs,
+                    amount = amount,
+                    type = type.uppercase(Locale.getDefault()),
+                    channel = channel,
+                    merchant = merchant,
+                    accountTail = null,
+                    bank = null,
+                    source = "MANUAL",
+                    rawSender = "MANUAL",
+                    rawBody = ""
+                )
+                dao.insert(t)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
-    /** First-run import of existing SMS */
+    /** First-run import of existing SMS with duplicate prevention */
     fun importRecentSms(monthsBack: Long = 6) {
         val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
-            SmsImporter.importRecent(ctx, monthsBack) { sender, body, ts ->
-                SmsParser.parse(sender, body, ts)?.let { transaction ->
+            try {
+                Log.d("HomeVm", "Starting SMS import for last $monthsBack months")
+                var importedCount = 0
+                var skippedCount = 0
+                
+                SmsImporter.importRecent(ctx, monthsBack) { sender, body, ts ->
+                    // Launch a new coroutine for each SMS processing
                     launch {
-                        dao.insert(transaction)
+                        try {
+                            // Check if this SMS already exists
+                            val exists = dao.exists(sender, body, ts)
+                            if (exists == 0) {
+                                SmsParser.parse(sender, body, ts)?.let { transaction ->
+                                    dao.insert(transaction)
+                                    importedCount++
+                                    Log.d("HomeVm", "Imported transaction: ${transaction.merchant} - ${transaction.amount}")
+                                }
+                            } else {
+                                skippedCount++
+                            }
+                        } catch (e: Exception) {
+                            // Log error but don't crash
+                            Log.e("HomeVm", "Error processing SMS", e)
+                            e.printStackTrace()
+                        }
                     }
                 }
+                
+                // Wait a bit for all SMS processing to complete
+                kotlinx.coroutines.delay(1000)
+                
+                // Log import results
+                Log.d("HomeVm", "SMS Import completed: $importedCount imported, $skippedCount skipped")
+                println("SMS Import completed: $importedCount imported, $skippedCount skipped")
+            } catch (e: Exception) {
+                // Log error but don't crash the app
+                Log.e("HomeVm", "Error during SMS import", e)
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** Clear all SMS transactions (useful for debugging) */
+    fun clearSmsTransactions() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                dao.clearSmsTransactions()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /** Get transaction statistics */
+    suspend fun getTransactionStats(): Pair<Int, Int> {
+        return try {
+            dao.getTransactionCount() to dao.getSmsTransactionCount()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            0 to 0 // Return default values if database access fails
+        }
+    }
+
+    /** Re-import SMS (clears existing SMS data first) */
+    fun reimportSms(monthsBack: Long = 6) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Clear existing SMS transactions
+                dao.clearSmsTransactions()
+                // Import fresh
+                importRecentSms(monthsBack)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }

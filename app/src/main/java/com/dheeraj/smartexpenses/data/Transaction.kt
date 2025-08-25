@@ -1,10 +1,17 @@
 package com.dheeraj.smartexpenses.data
 
-
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "transactions")
+@Entity(
+    tableName = "transactions",
+    indices = [
+        Index(value = ["rawSender", "rawBody", "ts"], unique = true),
+        Index(value = ["ts"]),
+        Index(value = ["type", "ts"])
+    ]
+)
 data class Transaction(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val ts: Long,

@@ -19,6 +19,7 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector,
     object Home : Screen("home", "Home", Icons.Outlined.Home, Icons.Filled.Home)
     object Analytics : Screen("analytics", "Analytics", Icons.Outlined.Analytics, Icons.Filled.Analytics)
     object Settings : Screen("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
+    object TransactionList : Screen("transaction_list", "All Transactions", Icons.Outlined.List, Icons.Filled.List)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,14 +70,25 @@ fun MainNavigation(
             composable(Screen.Home.route) {
                 HomeScreen(
                     homeVm = homeVm,
-                    onAddTransaction = onAddTransaction
+                    onAddTransaction = onAddTransaction,
+                    onViewAllTransactions = {
+                        navController.navigate(Screen.TransactionList.route)
+                    }
                 )
             }
             composable(Screen.Analytics.route) {
                 AnalyticsScreen(homeVm = homeVm)
             }
             composable(Screen.Settings.route) {
-                SettingsScreen()
+                SettingsScreen(homeVm = homeVm)
+            }
+            composable(Screen.TransactionList.route) {
+                TransactionListScreen(
+                    homeVm = homeVm,
+                    onBack = {
+                        navController.popBackStack()
+                    }
+                )
             }
         }
     }

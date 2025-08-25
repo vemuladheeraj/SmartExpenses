@@ -31,11 +31,12 @@ import java.util.*
 @Composable
 fun HomeScreen(
     homeVm: HomeVm,
-    onAddTransaction: () -> Unit
+    onAddTransaction: () -> Unit,
+    onViewAllTransactions: () -> Unit
 ) {
     val transactions by homeVm.items.collectAsState()
-    val totalCredit by homeVm.totalCredit.collectAsState()
-    val totalDebit by homeVm.totalDebit.collectAsState()
+    val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
+    val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
 
     Scaffold(
         topBar = {
@@ -98,7 +99,7 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    TextButton(onClick = { /* TODO: Navigate to all transactions */ }) {
+                    TextButton(onClick = onViewAllTransactions) {
                         Text("View All")
                     }
                 }
@@ -202,10 +203,12 @@ fun MonthlySummaryCard(totalCredit: Double, totalDebit: Double) {
 
 @Composable
 fun QuickStatsCard(transactions: List<Transaction>) {
-    val recentTransactions = transactions.take(5)
-    val totalTransactions = recentTransactions.size
+    val totalTransactions = transactions.size
+    val creditTransactions = transactions.filter { it.type == "CREDIT" && it.type != "TRANSFER" }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && it.type != "TRANSFER" }
+    
     val avgAmount = if (totalTransactions > 0) {
-        recentTransactions.sumOf { it.amount } / totalTransactions
+        transactions.sumOf { it.amount } / totalTransactions
     } else 0.0
     
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
@@ -225,7 +228,7 @@ fun QuickStatsCard(transactions: List<Transaction>) {
         ) {
             StatItem(
                 icon = Icons.Outlined.Receipt,
-                title = "Transactions",
+                title = "Total Transactions",
                 value = totalTransactions.toString(),
                 color = PrimaryBlue
             )
@@ -240,7 +243,7 @@ fun QuickStatsCard(transactions: List<Transaction>) {
             StatItem(
                 icon = Icons.Outlined.CalendarToday,
                 title = "This Month",
-                value = transactions.size.toString(),
+                value = "${creditTransactions.size} Income, ${debitTransactions.size} Expense",
                 color = AccentPurple
             )
         }

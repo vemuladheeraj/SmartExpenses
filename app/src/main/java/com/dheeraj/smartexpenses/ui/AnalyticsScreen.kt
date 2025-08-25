@@ -25,11 +25,14 @@ import java.util.*
 @Composable
 fun AnalyticsScreen(homeVm: HomeVm) {
     val transactions by homeVm.items.collectAsState()
-    val totalCredit by homeVm.totalCredit.collectAsState()
-    val totalDebit by homeVm.totalDebit.collectAsState()
+    val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
+    val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
+    val totalCredit6Months by homeVm.totalCredit6Months.collectAsState()
+    val totalDebit6Months by homeVm.totalDebit6Months.collectAsState()
     
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
     val balance = totalCredit - totalDebit
+    val balance6Months = totalCredit6Months - totalDebit6Months
 
     LazyColumn(
         modifier = Modifier
@@ -61,6 +64,15 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         }
         
         item {
+            SixMonthOverviewCard(
+                totalCredit = totalCredit6Months,
+                totalDebit = totalDebit6Months,
+                balance = balance6Months,
+                currencyFormat = currencyFormat
+            )
+        }
+        
+        item {
             SpendingInsightsCard(transactions = transactions, currencyFormat = currencyFormat)
         }
         
@@ -70,6 +82,14 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         
         item {
             RecentTrendsCard(transactions = transactions, currencyFormat = currencyFormat)
+        }
+        
+        item {
+            TransactionTypeBreakdownCard(transactions = transactions, currencyFormat = currencyFormat)
+        }
+        
+        item {
+            ChannelBreakdownCard(transactions = transactions, currencyFormat = currencyFormat)
         }
     }
 }
@@ -420,6 +440,242 @@ fun RecentTrendsCard(
             }
         }
     }
+}
+
+@Composable
+fun SixMonthOverviewCard(
+    totalCredit: Double,
+    totalDebit: Double,
+    balance: Double,
+    currencyFormat: NumberFormat
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Text(
+                "6 Months Overview",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                OverviewItem(
+                    title = "Income",
+                    amount = totalCredit,
+                    color = SuccessGreen,
+                    currencyFormat = currencyFormat
+                )
+                OverviewItem(
+                    title = "Expenses",
+                    amount = totalDebit,
+                    color = ErrorRed,
+                    currencyFormat = currencyFormat
+                )
+                OverviewItem(
+                    title = "Balance",
+                    amount = balance,
+                    color = if (balance >= 0) SuccessGreen else ErrorRed,
+                    currencyFormat = currencyFormat
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TransactionTypeBreakdownCard(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val creditTransactions = transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
+    val transferTransactions = transactions.filter { isInterAccountTransfer(it) }
+    
+    val totalCredit = creditTransactions.sumOf { it.amount }
+    val totalDebit = debitTransactions.sumOf { it.amount }
+    val totalTransfer = transferTransactions.sumOf { it.amount }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Text(
+                "Transaction Type Breakdown",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Income",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        currencyFormat.format(totalCredit),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = SuccessGreen
+                    )
+                    Text(
+                        "${creditTransactions.size} transactions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Expenses",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        currencyFormat.format(totalDebit),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = ErrorRed
+                    )
+                    Text(
+                        "${debitTransactions.size} transactions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        "Transfers",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        currencyFormat.format(totalTransfer),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "${transferTransactions.size} transactions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ChannelBreakdownCard(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val channelMap = mutableMapOf<String, Double>()
+    val channelCountMap = mutableMapOf<String, Int>()
+    
+    transactions.forEach { transaction ->
+        val channel = transaction.channel ?: "Other"
+        channelMap[channel] = channelMap.getOrDefault(channel, 0.0) + transaction.amount
+        channelCountMap[channel] = channelCountMap.getOrDefault(channel, 0) + 1
+    }
+    
+    val sortedChannels = channelMap.toList().sortedByDescending { it.second }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Text(
+                "Payment Channel Breakdown",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            if (sortedChannels.isEmpty()) {
+                Text(
+                    "No channel data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                sortedChannels.take(5).forEach { (channel, amount) ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = channel,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "${channelCountMap[channel]} transactions",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        
+                        Text(
+                            text = currencyFormat.format(amount),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+private fun isInterAccountTransfer(transaction: Transaction): Boolean {
+    if (transaction.type == "TRANSFER") return true
+    
+    val body = transaction.rawBody.lowercase()
+    val transferKeywords = listOf(
+        "transfer", "transferred", "moved", "shifted", "account to account",
+        "a/c transfer", "account transfer", "internal transfer", "self transfer",
+        "own account", "same bank", "intra bank", "inter account"
+    )
+    
+    return transferKeywords.any { body.contains(it) } ||
+           (transaction.merchant?.lowercase()?.contains("transfer") == true) ||
+           (transaction.channel?.lowercase()?.contains("transfer") == true) ||
+           (body.contains("credited") && body.contains("debited")) ||
+           (body.contains("from") && body.contains("to") && 
+            (body.contains("account") || body.contains("a/c")))
 }
 
 @Composable

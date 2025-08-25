@@ -2,6 +2,7 @@ package com.dheeraj.smartexpenses
 
 import android.Manifest
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -21,19 +22,37 @@ class MainActivity : ComponentActivity() {
     ) { granted ->
         val ok = (granted[Manifest.permission.READ_SMS] == true) &&
                 (granted[Manifest.permission.RECEIVE_SMS] == true)
-        if (ok) vm.importRecentSms()
+        if (ok) {
+            try {
+                Log.d("MainActivity", "Starting SMS import...")
+                vm.importRecentSms()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error during SMS import", e)
+                e.printStackTrace()
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        try {
+            Log.d("MainActivity", "onCreate started")
+            
+            // Request SMS permissions on first launch
+            requestPerms.launch(arrayOf(
+                Manifest.permission.READ_SMS,
+                Manifest.permission.RECEIVE_SMS
+            ))
 
-        // Request SMS permissions on first launch
-        requestPerms.launch(arrayOf(
-            Manifest.permission.READ_SMS,
-            Manifest.permission.RECEIVE_SMS
-        ))
-
-        setContent { App(vm) }
+            Log.d("MainActivity", "Setting content...")
+            setContent { App(vm) }
+            
+            Log.d("MainActivity", "onCreate completed")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error in onCreate", e)
+            e.printStackTrace()
+        }
     }
 }
 

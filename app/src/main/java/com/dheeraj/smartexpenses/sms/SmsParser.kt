@@ -28,7 +28,12 @@ object SmsParser {
         val lower = body.lowercase()
         val isCredit = creditKeywords.any { lower.contains(it) }
         val isDebit  = debitKeywords.any  { lower.contains(it) }
+        
+        // Check for inter-account transfers
+        val isTransfer = isInterAccountTransfer(body, sender)
+        
         val type = when {
+            isTransfer -> "TRANSFER" // Special type for transfers
             isCredit && !isDebit -> "CREDIT"
             isDebit  && !isCredit -> "DEBIT"
             lower.contains("received") -> "CREDIT"
@@ -59,6 +64,25 @@ object SmsParser {
             rawSender = sender,
             rawBody = body
         )
+    }
+
+    private fun isInterAccountTransfer(body: String, sender: String): Boolean {
+        val lowerBody = body.lowercase()
+        
+        // Common patterns for inter-account transfers
+        val transferKeywords = listOf(
+            "transfer", "transferred", "moved", "shifted", "account to account",
+            "a/c transfer", "account transfer", "internal transfer", "self transfer",
+            "own account", "same bank", "intra bank", "inter account"
+        )
+        
+        // Check if it's a transfer between own accounts
+        val isOwnTransfer = transferKeywords.any { lowerBody.contains(it) } ||
+                           (lowerBody.contains("credited") && lowerBody.contains("debited")) ||
+                           (lowerBody.contains("from") && lowerBody.contains("to") && 
+                            (lowerBody.contains("account") || lowerBody.contains("a/c")))
+        
+        return isOwnTransfer
     }
 
     private fun bankFromSender(sender: String): String? = when (sender.uppercase()) {

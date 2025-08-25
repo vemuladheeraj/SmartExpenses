@@ -13,9 +13,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(homeVm: HomeVm) {
+    val scope = rememberCoroutineScope()
+    var totalTransactions by remember { mutableStateOf(0) }
+    var smsTransactions by remember { mutableStateOf(0) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    // Load transaction statistics
+    LaunchedEffect(Unit) {
+        try {
+            val stats = homeVm.getTransactionStats()
+            totalTransactions = stats.first
+            smsTransactions = stats.second
+        } catch (e: Exception) {
+            // Handle error silently - don't crash the app
+            e.printStackTrace()
+        }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -115,6 +133,52 @@ fun SettingsScreen() {
         
         item {
             SettingsSection(
+                title = "Transaction Data",
+                items = listOf(
+                    SettingsItem(
+                        icon = Icons.Outlined.Analytics,
+                        title = "Transaction Statistics",
+                        subtitle = "Total: $totalTransactions, SMS: $smsTransactions",
+                        onClick = { /* TODO: Show detailed stats */ }
+                    ),
+                    SettingsItem(
+                        icon = Icons.Outlined.Refresh,
+                        title = "Re-import SMS",
+                        subtitle = "Clear and re-import SMS transactions",
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                homeVm.reimportSms()
+                                // Refresh stats
+                                val stats = homeVm.getTransactionStats()
+                                totalTransactions = stats.first
+                                smsTransactions = stats.second
+                                isLoading = false
+                            }
+                        }
+                    ),
+                    SettingsItem(
+                        icon = Icons.Outlined.Clear,
+                        title = "Clear SMS Data",
+                        subtitle = "Remove all SMS-imported transactions",
+                        onClick = {
+                            scope.launch {
+                                isLoading = true
+                                homeVm.clearSmsTransactions()
+                                // Refresh stats
+                                val stats = homeVm.getTransactionStats()
+                                totalTransactions = stats.first
+                                smsTransactions = stats.second
+                                isLoading = false
+                            }
+                        }
+                    )
+                )
+            )
+        }
+        
+        item {
+            SettingsSection(
                 title = "Support",
                 items = listOf(
                     SettingsItem(
@@ -181,6 +245,16 @@ fun SettingsScreen() {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Logout", fontWeight = FontWeight.SemiBold)
             }
+        }
+    }
+    
+    // Loading indicator
+    if (isLoading) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator()
         }
     }
 }
