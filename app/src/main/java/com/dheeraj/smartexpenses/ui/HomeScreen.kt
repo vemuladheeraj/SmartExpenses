@@ -35,6 +35,7 @@ fun HomeScreen(
     onViewAllTransactions: () -> Unit
 ) {
     val transactions by homeVm.items.collectAsState()
+    val transferPairIds by homeVm.transferPairIds.collectAsState()
     val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
     val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
 
@@ -114,7 +115,7 @@ fun HomeScreen(
                     items = transactions.take(10),
                     key = { it.id }
                 ) { transaction ->
-                    ModernTransactionCard(transaction = transaction)
+                    ModernTransactionCard(transaction = transaction, transferPairIds = transferPairIds)
                 }
             }
             
@@ -293,7 +294,7 @@ fun StatItem(
 }
 
 @Composable
-fun ModernTransactionCard(transaction: Transaction) {
+fun ModernTransactionCard(transaction: Transaction, transferPairIds: Set<Long>) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     
@@ -333,8 +334,9 @@ fun ModernTransactionCard(transaction: Transaction) {
             Column(
                 modifier = Modifier.weight(1f)
             ) {
+                val title = transaction.merchant ?: transaction.channel ?: "Transaction"
                 Text(
-                    text = transaction.merchant ?: transaction.channel ?: "Transaction",
+                    text = title,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -365,15 +367,35 @@ fun ModernTransactionCard(transaction: Transaction) {
             Column(
                 horizontalAlignment = Alignment.End
             ) {
+                val isTransfer = transaction.type == "TRANSFER" || transaction.id in transferPairIds
+
+                val amountText = when {
+                    isTransfer -> currencyFormat.format(transaction.amount)
+                    transaction.type == "CREDIT" -> "+ ${currencyFormat.format(transaction.amount)}"
+                    else -> "- ${currencyFormat.format(transaction.amount)}"
+                }
+
+                val amountColor = when {
+                    isTransfer -> MaterialTheme.colorScheme.onSurface
+                    transaction.type == "CREDIT" -> SuccessGreen
+                    else -> ErrorRed
+                }
+
+                val label = when {
+                    isTransfer -> "TRANSFER"
+                    transaction.type == "CREDIT" -> "CREDIT"
+                    else -> "DEBIT"
+                }
+
                 Text(
-                    text = "${if (transaction.type == "CREDIT") "+" else "-"} ${currencyFormat.format(transaction.amount)}",
+                    text = amountText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = if (transaction.type == "CREDIT") SuccessGreen else ErrorRed
+                    color = amountColor
                 )
-                
+
                 Text(
-                    text = transaction.type,
+                    text = label,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

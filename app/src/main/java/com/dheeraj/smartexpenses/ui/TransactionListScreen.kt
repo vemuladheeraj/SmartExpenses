@@ -27,6 +27,7 @@ fun TransactionListScreen(
     onBack: () -> Unit
 ) {
     val allTransactions by homeVm.allItems.collectAsState()
+    val transferPairIds by homeVm.transferPairIds.collectAsState()
     val totalDebit6Months by homeVm.totalDebit6Months.collectAsState()
     val totalCredit6Months by homeVm.totalCredit6Months.collectAsState()
     
@@ -313,7 +314,7 @@ fun TransactionListScreen(
                     items = filteredTransactions,
                     key = { it.id }
                 ) { transaction ->
-                    ModernTransactionCard(transaction = transaction)
+                    ModernTransactionCard(transaction = transaction, transferPairIds = transferPairIds)
                 }
             }
             

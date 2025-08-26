@@ -24,7 +24,12 @@ import java.util.*
 
 @Composable
 fun AnalyticsScreen(homeVm: HomeVm) {
-    val transactions by homeVm.items.collectAsState()
+    val transactionsRaw by homeVm.items.collectAsState()
+    val pairIds by homeVm.transferPairIds.collectAsState()
+    val transactions = remember(transactionsRaw) {
+        // Exclude transfers in analytics by default
+        transactionsRaw.filterNot { it.type == "TRANSFER" || it.id in pairIds || it.rawBody.lowercase().contains("transfer") }
+    }
     val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
     val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
     val totalCredit6Months by homeVm.totalCredit6Months.collectAsState()
@@ -275,10 +280,12 @@ fun CategoryBreakdownCard(
 ) {
     val debitTransactions = transactions.filter { it.type == "DEBIT" }
     val categoryMap = mutableMapOf<String, Double>()
+    val categoryToTxns = mutableMapOf<String, MutableList<Transaction>>()
     
     debitTransactions.forEach { transaction ->
         val category = getCategoryFromMerchant(transaction.merchant ?: transaction.channel ?: "")
         categoryMap[category] = categoryMap.getOrDefault(category, 0.0) + transaction.amount
+        categoryToTxns.getOrPut(category) { mutableListOf() }.add(transaction)
     }
     
     val sortedCategories = categoryMap.toList().sortedByDescending { it.second }
@@ -308,13 +315,43 @@ fun CategoryBreakdownCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                sortedCategories.take(5).forEach { (category, amount) ->
-                    CategoryItem(
-                        category = category,
-                        amount = amount,
-                        total = categoryMap.values.sum(),
-                        currencyFormat = currencyFormat
-                    )
+                var expandedCategory by remember { mutableStateOf<String?>(null) }
+                sortedCategories.take(8).forEach { (category, amount) ->
+                    ElevatedCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = { expandedCategory = if (expandedCategory == category) null else category }
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            CategoryItem(
+                                category = category,
+                                amount = amount,
+                                total = categoryMap.values.sum(),
+                                currencyFormat = currencyFormat
+                            )
+                            if (expandedCategory == category) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                val txns = categoryToTxns[category].orEmpty().sortedByDescending { it.ts }
+                                txns.take(5).forEach { t ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            t.merchant ?: t.channel ?: "Transaction",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        Text(
+                                            text = "- ${currencyFormat.format(t.amount)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = ErrorRed
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
             }
@@ -383,15 +420,19 @@ fun RecentTrendsCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val recentTransactions = transactions.take(10)
+    // Last 7 days
+    val now = System.currentTimeMillis()
+    val sevenDaysAgo = now - 7L * 24L * 60L * 60L * 1000L
+    val recentTransactions = transactions.filter { it.ts >= sevenDaysAgo }
     val dailySpending = recentTransactions
         .filter { it.type == "DEBIT" }
         .groupBy { 
             val calendar = Calendar.getInstance()
             calendar.timeInMillis = it.ts
-            calendar.get(Calendar.DAY_OF_MONTH)
+            calendar.get(Calendar.DAY_OF_YEAR)
         }
         .mapValues { it.value.sumOf { transaction -> transaction.amount } }
+    val maxAmount = dailySpending.values.maxOrNull() ?: 0.0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -418,24 +459,50 @@ fun RecentTrendsCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                dailySpending.entries.sortedBy { it.key }.forEach { (day, amount) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Day $day",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = currencyFormat.format(amount),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = ErrorRed
-                        )
+                dailySpending.entries.sortedBy { it.key }.forEach { (dayKey, amount) ->
+                    val dayLabel = run {
+                        val c = Calendar.getInstance()
+                        c.set(Calendar.DAY_OF_YEAR, dayKey)
+                        val dow = c.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.SHORT, Locale.getDefault())
+                        dow ?: "Day"
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = dayLabel,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = currencyFormat.format(amount),
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                color = ErrorRed
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        // Bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            val ratio = if (maxAmount > 0) (amount / maxAmount).toFloat() else 0f
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(ratio)
+                                    .background(ErrorRed.copy(alpha = 0.7f))
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
                 }
             }
         }
@@ -593,11 +660,13 @@ fun ChannelBreakdownCard(
 ) {
     val channelMap = mutableMapOf<String, Double>()
     val channelCountMap = mutableMapOf<String, Int>()
+    val channelToTxns = mutableMapOf<String, MutableList<Transaction>>()
     
     transactions.forEach { transaction ->
         val channel = transaction.channel ?: "Other"
         channelMap[channel] = channelMap.getOrDefault(channel, 0.0) + transaction.amount
         channelCountMap[channel] = channelCountMap.getOrDefault(channel, 0) + 1
+        channelToTxns.getOrPut(channel) { mutableListOf() }.add(transaction)
     }
     
     val sortedChannels = channelMap.toList().sortedByDescending { it.second }
@@ -627,31 +696,63 @@ fun ChannelBreakdownCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
-                sortedChannels.take(5).forEach { (channel, amount) ->
-                    Row(
+                var expandedChannel by remember { mutableStateOf<String?>(null) }
+                sortedChannels.take(8).forEach { (channel, amount) ->
+                    ElevatedCard(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        shape = RoundedCornerShape(12.dp),
+                        onClick = { expandedChannel = if (expandedChannel == channel) null else channel }
                     ) {
-                        Column {
-                            Text(
-                                text = channel,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "${channelCountMap[channel]} transactions",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = channel,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "${channelCountMap[channel]} transactions",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                
+                                Text(
+                                    text = currencyFormat.format(amount),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            if (expandedChannel == channel) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                val txns = channelToTxns[channel].orEmpty().sortedByDescending { it.ts }
+                                txns.take(5).forEach { t ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            t.merchant ?: t.channel ?: "Transaction",
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                        val sign = if (t.type == "CREDIT") "+" else "-"
+                                        val color = if (t.type == "CREDIT") SuccessGreen else ErrorRed
+                                        Text(
+                                            text = "$sign ${currencyFormat.format(t.amount)}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = color
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                }
+                            }
                         }
-                        
-                        Text(
-                            text = currencyFormat.format(amount),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
