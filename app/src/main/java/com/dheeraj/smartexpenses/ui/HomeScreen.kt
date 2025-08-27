@@ -37,6 +37,7 @@ fun HomeScreen(
     val transactions by homeVm.items.collectAsState()
     val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
     val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
+    val rangeMode by homeVm.rangeModeState.collectAsState()
 
     Scaffold(
         topBar = {
@@ -80,6 +81,23 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                Spacer(modifier = Modifier.height(8.dp))
+                // Small inline switcher for totals range
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = rangeMode == HomeVm.RangeMode.CALENDAR_MONTH,
+                        onClick = { homeVm.setRangeMode(HomeVm.RangeMode.CALENDAR_MONTH) },
+                        label = { Text("This month") }
+                    )
+                    FilterChip(
+                        selected = rangeMode == HomeVm.RangeMode.ROLLING_MONTH,
+                        onClick = { homeVm.setRangeMode(HomeVm.RangeMode.ROLLING_MONTH) },
+                        label = { Text("Last 30 days") }
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 MonthlySummaryCard(totalCredit = totalCredit, totalDebit = totalDebit)
             }
@@ -204,8 +222,8 @@ fun MonthlySummaryCard(totalCredit: Double, totalDebit: Double) {
 @Composable
 fun QuickStatsCard(transactions: List<Transaction>) {
     val totalTransactions = transactions.size
-    val creditTransactions = transactions.filter { it.type == "CREDIT" && it.type != "TRANSFER" }
-    val debitTransactions = transactions.filter { it.type == "DEBIT" && it.type != "TRANSFER" }
+    val creditTransactions = transactions.filter { it.type == "CREDIT" }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
     
     val avgAmount = if (totalTransactions > 0) {
         transactions.sumOf { it.amount } / totalTransactions

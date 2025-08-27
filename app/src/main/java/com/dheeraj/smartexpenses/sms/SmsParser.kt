@@ -28,9 +28,26 @@ object SmsParser {
         val lower = body.lowercase()
         val isCredit = creditKeywords.any { lower.contains(it) }
         val isDebit  = debitKeywords.any  { lower.contains(it) }
+
+        // Ignore loan-related SMS (offers, approvals, EMIs, disbursals) from being
+        // treated as income/expense. Users generally don't consider these as income
+        // or spending events for budgeting.
+        val loanHints = listOf(
+            "loan", "emi", "pre-approved", "preapproved", "approved", "eligible",
+            "limit", "disbursed", "repayment", "due", "overdue", "top-up", "top up"
+        )
+        if (loanHints.any { lower.contains(it) }) {
+            // If message talks about loans at all, skip recording it to avoid inflating totals
+            return null
+        }
         
         // Check for inter-account transfers
         val isTransfer = isInterAccountTransfer(body, sender)
+
+        // If the SMS does not clearly indicate a debit/credit/transfer, ignore it.
+        // This filters out promotional, loan marketing, referral, and generic informational SMS
+        // that may still contain amounts (e.g., "Loan up to Rs 2,00,000", "Get Rs 500 off", etc.).
+        if (!isCredit && !isDebit && !isTransfer) return null
         
         val type = when {
             isTransfer -> "TRANSFER" // Special type for transfers
@@ -69,20 +86,25 @@ object SmsParser {
     private fun isInterAccountTransfer(body: String, sender: String): Boolean {
         val lowerBody = body.lowercase()
         
-        // Common patterns for inter-account transfers
-        val transferKeywords = listOf(
-            "transfer", "transferred", "moved", "shifted", "account to account",
-            "a/c transfer", "account transfer", "internal transfer", "self transfer",
-            "own account", "same bank", "intra bank", "inter account"
+        // Narrow patterns that strongly indicate transfer between user's own accounts
+        val strongTransferKeywords = listOf(
+            "self transfer", "own account", "between your accounts", "internal transfer",
+            "intra bank", "same bank", "account to account", "a/c to a/c", "inter account"
         )
-        
-        // Check if it's a transfer between own accounts
-        val isOwnTransfer = transferKeywords.any { lowerBody.contains(it) } ||
-                           (lowerBody.contains("credited") && lowerBody.contains("debited")) ||
-                           (lowerBody.contains("from") && lowerBody.contains("to") && 
-                            (lowerBody.contains("account") || lowerBody.contains("a/c")))
-        
-        return isOwnTransfer
+
+        if (strongTransferKeywords.any { lowerBody.contains(it) }) return true
+
+        // Messages that show both a debit and a credit in one SMS (typical for internal transfers)
+        if (lowerBody.contains("credited") && lowerBody.contains("debited")) return true
+
+        // Pattern: from A/c XXXX to A/c YYYY (two account tails present)
+        val acctTailPattern = Regex("(?i)(a/c|account).*?([xX]{2,}|xx|\")[0-9]{2,6}|([0-9]{2,6})")
+        val tails = accTailRegex.findAll(body).toList()
+        if (tails.size >= 2) return true
+
+        // Do NOT mark generic "debited from A/c ... to UPI/merchant" as transfer
+        // because it's typically an external payment, not internal.
+        return false
     }
 
     private fun bankFromSender(sender: String): String? = when (sender.uppercase()) {

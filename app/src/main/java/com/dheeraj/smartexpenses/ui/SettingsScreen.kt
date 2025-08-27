@@ -34,6 +34,8 @@ fun SettingsScreen(homeVm: HomeVm) {
         }
     }
 
+    val rangeMode by homeVm.rangeModeState.collectAsState()
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -84,6 +86,15 @@ fun SettingsScreen(homeVm: HomeVm) {
                 title = "Preferences",
                 items = listOf(
                     SettingsItem(
+                        icon = Icons.Outlined.DateRange,
+                        title = "Totals Date Range",
+                        subtitle = when (rangeMode) {
+                            HomeVm.RangeMode.CALENDAR_MONTH -> "Calendar month (1st to month end)"
+                            HomeVm.RangeMode.ROLLING_MONTH -> "Rolling month (today vs same day last month)"
+                        },
+                        onClick = { /* No-op: shown as static row below */ }
+                    ),
+                    SettingsItem(
                         icon = Icons.Outlined.Language,
                         title = "Language",
                         subtitle = "English (US)",
@@ -103,6 +114,37 @@ fun SettingsScreen(homeVm: HomeVm) {
                     )
                 )
             )
+        }
+
+        item {
+            // Inline segmented control to switch range mode
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Choose totals date range", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = rangeMode == HomeVm.RangeMode.CALENDAR_MONTH,
+                            onClick = { homeVm.setRangeMode(HomeVm.RangeMode.CALENDAR_MONTH) },
+                            label = { Text("Calendar month") },
+                            leadingIcon = if (rangeMode == HomeVm.RangeMode.CALENDAR_MONTH) {
+                                { Icon(Icons.Outlined.Check, contentDescription = null) }
+                            } else null
+                        )
+                        FilterChip(
+                            selected = rangeMode == HomeVm.RangeMode.ROLLING_MONTH,
+                            onClick = { homeVm.setRangeMode(HomeVm.RangeMode.ROLLING_MONTH) },
+                            label = { Text("Rolling month") },
+                            leadingIcon = if (rangeMode == HomeVm.RangeMode.ROLLING_MONTH) {
+                                { Icon(Icons.Outlined.Check, contentDescription = null) }
+                            } else null
+                        )
+                    }
+                }
+            }
         }
         
         item {

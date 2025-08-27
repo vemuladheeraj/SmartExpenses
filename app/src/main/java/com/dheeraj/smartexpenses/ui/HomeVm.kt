@@ -31,8 +31,13 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     
     private val dao = AppDb.get(getApplication()).txnDao()
 
+    enum class RangeMode { CALENDAR_MONTH, ROLLING_MONTH }
+
     private val now = MutableStateFlow(System.currentTimeMillis())
+    private val rangeMode = MutableStateFlow(RangeMode.CALENDAR_MONTH)
+    val rangeModeState: StateFlow<RangeMode> = rangeMode.asStateFlow()
     fun refresh() { now.value = System.currentTimeMillis() }
+    fun setRangeMode(mode: RangeMode) { rangeMode.value = mode; refresh() }
 
     private fun monthBounds(epoch: Long): Pair<Long, Long> {
         val calendar = Calendar.getInstance()
@@ -53,7 +58,29 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         return start to end
     }
 
-    private val range = now.map { monthBounds(it) }
+    private fun rollingMonthBounds(epoch: Long): Pair<Long, Long> {
+        val end = epoch
+        val startCal = Calendar.getInstance()
+        startCal.timeInMillis = epoch
+        // Move back one month keeping the same day as today (or last day if shorter month)
+        val targetDay = startCal.get(Calendar.DAY_OF_MONTH)
+        startCal.add(Calendar.MONTH, -1)
+        val maxDay = startCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+        startCal.set(Calendar.DAY_OF_MONTH, minOf(targetDay, maxDay))
+        startCal.set(Calendar.HOUR_OF_DAY, 0)
+        startCal.set(Calendar.MINUTE, 0)
+        startCal.set(Calendar.SECOND, 0)
+        startCal.set(Calendar.MILLISECOND, 0)
+        val start = startCal.timeInMillis
+        return start to end
+    }
+
+    private val range = combine(now, rangeMode) { currentNow, mode ->
+        when (mode) {
+            RangeMode.CALENDAR_MONTH -> monthBounds(currentNow)
+            RangeMode.ROLLING_MONTH -> rollingMonthBounds(currentNow)
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, 0L to Long.MAX_VALUE)
         .stateIn(viewModelScope, SharingStarted.Eagerly, 0L to Long.MAX_VALUE)
 
     val items = range.flatMapLatest { (s,e) -> dao.inRange(s,e) }
@@ -100,19 +127,22 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         
         val body = transaction.rawBody.lowercase()
         
-        // Common patterns for inter-account transfers
-        val transferKeywords = listOf(
-            "transfer", "transferred", "moved", "shifted", "account to account",
-            "a/c transfer", "account transfer", "internal transfer", "self transfer",
-            "own account", "same bank", "intra bank", "inter account"
+        // Strong indicators of internal transfer; avoid broad keywords that misclassify card/UPI
+        val strongTransferKeywords = listOf(
+            "self transfer", "own account", "between your accounts", "internal transfer",
+            "intra bank", "same bank", "account to account", "a/c to a/c", "inter account"
         )
-        
-        return transferKeywords.any { body.contains(it) } ||
-               (transaction.merchant?.lowercase()?.contains("transfer") == true) ||
-               (transaction.channel?.lowercase()?.contains("transfer") == true) ||
-               (body.contains("credited") && body.contains("debited")) ||
-               (body.contains("from") && body.contains("to") && 
-                (body.contains("account") || body.contains("a/c")))
+
+        if (strongTransferKeywords.any { body.contains(it) }) return true
+
+        // One SMS showing both credit and debit (typical for internal movement)
+        if (body.contains("credited") && body.contains("debited")) return true
+
+        // If two account tails are present, likely internal
+        val tails = Regex("(?i)(?:a/c|account)(?:.*?)([0-9]{2,6})").findAll(transaction.rawBody).toList()
+        if (tails.size >= 2) return true
+
+        return false
     }
 
     /** Manual add */
