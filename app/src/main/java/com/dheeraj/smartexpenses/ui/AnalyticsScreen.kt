@@ -1,6 +1,8 @@
 package com.dheeraj.smartexpenses.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,18 +23,56 @@ import com.dheeraj.smartexpenses.data.Transaction
 import com.dheeraj.smartexpenses.ui.theme.*
 import java.text.NumberFormat
 import java.util.*
+import com.dheeraj.smartexpenses.data.amount
 
 @Composable
 fun AnalyticsScreen(homeVm: HomeVm) {
-    val transactions by homeVm.items.collectAsState()
-    val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
-    val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
-    val totalCredit6Months by homeVm.totalCredit6Months.collectAsState()
-    val totalDebit6Months by homeVm.totalDebit6Months.collectAsState()
-    
+    val allTransactions by homeVm.allItems.collectAsState()
+    var monthsBack by remember { mutableStateOf(3f) }
+    var selectedMonthIndex by remember { mutableStateOf<Int?>(null) }
+    var fromDateMillis by remember { mutableStateOf<Long?>(null) }
+    var toDateMillis by remember { mutableStateOf<Long?>(null) }
+    var showMonthlyOverview by remember { mutableStateOf(true) }
+    var showRangeOverview by remember { mutableStateOf(true) }
+    var showInsights by remember { mutableStateOf(true) }
+    var showCategories by remember { mutableStateOf(true) }
+
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
-    val balance = totalCredit - totalDebit
-    val balance6Months = totalCredit6Months - totalDebit6Months
+
+    val now = System.currentTimeMillis()
+    val (rangeStart, rangeEnd) = remember(monthsBack, selectedMonthIndex, fromDateMillis, toDateMillis, now) {
+        if (fromDateMillis != null && toDateMillis != null && fromDateMillis!! <= toDateMillis!!) {
+            fromDateMillis!! to toDateMillis!!
+        } else if (selectedMonthIndex != null) {
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.MONTH, -selectedMonthIndex!!)
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            val start = cal.timeInMillis
+            cal.add(Calendar.MONTH, 1)
+            (start to cal.timeInMillis - 1)
+        } else {
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = now
+            cal.add(Calendar.MONTH, -monthsBack.toInt())
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            (cal.timeInMillis to now)
+        }
+    }
+
+    val rangeTransactions = remember(allTransactions, rangeStart, rangeEnd) {
+        allTransactions.filter { it.ts in rangeStart..rangeEnd }
+    }
+
+    val totalCredit = remember(rangeTransactions) { rangeTransactions.filter { it.type == "CREDIT" }.sumOf { it.amount } }
+    val totalDebit  = remember(rangeTransactions) { rangeTransactions.filter { it.type == "DEBIT"  }.sumOf { it.amount } }
+    val balance     = totalCredit - totalDebit
 
     LazyColumn(
         modifier = Modifier
@@ -42,54 +82,146 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text(
-                "Analytics",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                "Track your spending patterns",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Track your spending patterns", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        
+
         item {
-            MonthlyOverviewCard(
-                totalCredit = totalCredit,
-                totalDebit = totalDebit,
-                balance = balance,
-                currencyFormat = currencyFormat
-            )
+            Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Controls", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Last ${monthsBack.toInt()} month(s)")
+                    Slider(value = monthsBack, onValueChange = { monthsBack = it; selectedMonthIndex = null; fromDateMillis = null; toDateMillis = null }, valueRange = 1f..6f, steps = 4)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        repeat(6) { idx ->
+                            val cal = Calendar.getInstance().apply { add(Calendar.MONTH, -idx) }
+                            val label = cal.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) + " '" + (cal.get(Calendar.YEAR) % 100)
+                            FilterChip(selected = selectedMonthIndex == idx, onClick = {
+                                if (selectedMonthIndex == idx) selectedMonthIndex = null else selectedMonthIndex = idx
+                                fromDateMillis = null; toDateMillis = null
+                            }, label = { Text(label) })
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        AssistChip(onClick = { showMonthlyOverview = !showMonthlyOverview }, label = { Text(if (showMonthlyOverview) "Hide Monthly" else "Show Monthly") })
+                        AssistChip(onClick = { showRangeOverview = !showRangeOverview }, label = { Text(if (showRangeOverview) "Hide Range" else "Show Range") })
+                        AssistChip(onClick = { showInsights = !showInsights }, label = { Text(if (showInsights) "Hide Insights" else "Show Insights") })
+                        AssistChip(onClick = { showCategories = !showCategories }, label = { Text(if (showCategories) "Hide Categories" else "Show Categories") })
+                    }
+                }
+            }
         }
-        
-        item {
-            SixMonthOverviewCard(
-                totalCredit = totalCredit6Months,
-                totalDebit = totalDebit6Months,
-                balance = balance6Months,
-                currencyFormat = currencyFormat
-            )
+
+        if (showMonthlyOverview) {
+            item {
+                // Monthly overview for current calendar month
+                val cal = Calendar.getInstance()
+                cal.set(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 0)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                val start = cal.timeInMillis
+                val end = System.currentTimeMillis()
+                val monthTxns = allTransactions.filter { it.ts in start..end }
+                val mCredit = monthTxns.filter { it.type == "CREDIT" }.sumOf { it.amount }
+                val mDebit  = monthTxns.filter { it.type == "DEBIT" }.sumOf { it.amount }
+                val mBalance = mCredit - mDebit
+                MonthlyOverviewCard(totalCredit = mCredit, totalDebit = mDebit, balance = mBalance, currencyFormat = currencyFormat)
+            }
         }
-        
-        item {
-            SpendingInsightsCard(transactions = transactions, currencyFormat = currencyFormat)
+
+        if (showRangeOverview) {
+            item { MonthlyOverviewCard(totalCredit = totalCredit, totalDebit = totalDebit, balance = balance, currencyFormat = currencyFormat) }
         }
-        
-        item {
-            CategoryBreakdownCard(transactions = transactions, currencyFormat = currencyFormat)
+
+        if (showInsights) {
+            item { SpendingInsightsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
-        
-        item {
-            RecentTrendsCard(transactions = transactions, currencyFormat = currencyFormat)
+
+        if (showCategories) {
+            item { CategoryBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
-        
-        item {
-            TransactionTypeBreakdownCard(transactions = transactions, currencyFormat = currencyFormat)
+
+        item { RecentTrendsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TransactionTypeBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { ChannelBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TopMerchantsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { BiggestExpensesCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+    }
+}
+
+@Composable
+fun TopMerchantsCard(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    val totals = debitTransactions.groupBy { (it.merchant ?: it.channel ?: "Unknown").trim() }
+        .mapValues { it.value.sumOf { t -> t.amount } }
+        .toList()
+        .sortedByDescending { it.second }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Top Merchants", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            totals.take(10).forEach { (name, amount) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(name.ifEmpty { "Unknown" }, style = MaterialTheme.typography.bodyMedium)
+                    Text(currencyFormat.format(amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            if (totals.isEmpty()) Text("No data", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        
-        item {
-            ChannelBreakdownCard(transactions = transactions, currencyFormat = currencyFormat)
+    }
+}
+
+@Composable
+fun BiggestExpensesCard(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val biggest = transactions.filter { it.type == "DEBIT" }
+        .sortedByDescending { it.amount }
+        .take(10)
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("Biggest Expenses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            biggest.forEach { t ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text((t.merchant ?: t.channel ?: "Transaction"), style = MaterialTheme.typography.bodyMedium)
+                    Text(currencyFormat.format(t.amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = ErrorRed)
+                }
+                Spacer(Modifier.height(6.dp))
+            }
+            if (biggest.isEmpty()) Text("No data", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

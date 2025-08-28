@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.util.Calendar
 import java.util.Locale
+import com.dheeraj.smartexpenses.data.amount
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeVm(app: Application) : AndroidViewModel(app) {
@@ -30,6 +31,11 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     }
     
     private val dao = AppDb.get(getApplication()).txnDao()
+    // Background SMS import state for UI
+    private val _isImporting = MutableStateFlow(false)
+    val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
+    private val _importProgress = MutableStateFlow(0 to 0)
+    val importProgress: StateFlow<Pair<Int, Int>> = _importProgress.asStateFlow()
 
     enum class RangeMode { CALENDAR_MONTH, ROLLING_MONTH }
 
@@ -98,25 +104,29 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         System.currentTimeMillis()
     ).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    // Get total credits and debits for 6 months (excluding inter-account transfers)
+    // Get total credits and debits for 6 months (excluding inter-account transfers and paired same-amount debit/credits)
     val totalDebit6Months = allItems.map { transactions ->
-        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
+        val paired = findPairedTransferIds(transactions)
+        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
             .sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
     val totalCredit6Months = allItems.map { transactions ->
-        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
+        val paired = findPairedTransferIds(transactions)
+        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in paired }
             .sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
     // Get current month totals excluding transfers
     val totalDebitCurrentMonth = items.map { transactions ->
-        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
+        val paired = findPairedTransferIds(transactions)
+        transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
             .sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
     val totalCreditCurrentMonth = items.map { transactions ->
-        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
+        val paired = findPairedTransferIds(transactions)
+        transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in paired }
             .sumOf { it.amount }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, 0.0)
 
@@ -145,13 +155,81 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         return false
     }
 
+    /**
+     * Identify likely inter-account transfers by pairing a debit and a credit
+     * with the exact same amount occurring close in time (default 2 hours),
+     * optionally matching on bank or account tail when available.
+     * Returns the set of transaction ids that are part of such pairs.
+     */
+    private fun findPairedTransferIds(transactions: List<Transaction>, timeWindowMillis: Long = 2 * 60 * 60 * 1000): Set<Long> {
+        if (transactions.isEmpty()) return emptySet()
+
+        val credits = transactions.filter { it.type == "CREDIT" }.sortedBy { it.ts }
+        val debits  = transactions.filter { it.type == "DEBIT"  }.sortedBy { it.ts }
+
+        val pairedIds = mutableSetOf<Long>()
+        var i = 0
+        var j = 0
+
+        while (i < credits.size && j < debits.size) {
+            val c = credits[i]
+            val d = debits[j]
+            val dt = kotlin.math.abs(c.ts - d.ts)
+
+            // Move pointers to keep within time window
+            if (c.ts < d.ts && (d.ts - c.ts) > timeWindowMillis) { i++; continue }
+            if (d.ts < c.ts && (c.ts - d.ts) > timeWindowMillis) { j++; continue }
+
+            val amountMatch = kotlin.math.abs(c.amount - d.amount) < 0.01
+            val bankMatch = c.bank != null && d.bank != null && c.bank == d.bank
+            val tailMatch = c.accountTail != null && d.accountTail != null && c.accountTail == d.accountTail
+            val nameMatch = namesSimilar(c.merchant, d.merchant) ||
+                    namesSimilar(extractCounterparty(c.rawBody), extractCounterparty(d.rawBody)) ||
+                    (normalizeName(c.rawSender) != null && normalizeName(c.rawSender) == normalizeName(d.rawSender))
+
+            if (dt <= timeWindowMillis && amountMatch && (bankMatch || tailMatch || nameMatch)) {
+                pairedIds += c.id
+                pairedIds += d.id
+                i++; j++
+            } else {
+                // advance the earlier one to search for a closer match
+                if (c.ts <= d.ts) i++ else j++
+            }
+        }
+
+        return pairedIds
+    }
+
+    private fun normalizeName(input: String?): String? {
+        if (input == null) return null
+        val s = input.lowercase(Locale.getDefault()).trim()
+        val cleaned = s.replace("[^a-z0-9 ]".toRegex(), " ")
+            .replace("\n".toRegex(), " ")
+            .replace("\\s+".toRegex(), " ")
+            .trim()
+        return if (cleaned.isEmpty()) null else cleaned
+    }
+
+    private fun namesSimilar(a: String?, b: String?): Boolean {
+        val na = normalizeName(a) ?: return false
+        val nb = normalizeName(b) ?: return false
+        return na == nb || na.contains(nb) || nb.contains(na)
+    }
+
+    private fun extractCounterparty(body: String?): String? {
+        if (body == null) return null
+        val regex = Regex("(?i)(?:to|from|at)\\s+([A-Za-z0-9 &._-]{3,40})")
+        val match = regex.find(body) ?: return null
+        return match.groupValues.getOrNull(1)
+    }
+
     /** Manual add */
     fun addManual(amount: Double, type: String, merchant: String?, channel: String?, whenTs: Long = System.currentTimeMillis()) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val t = Transaction(
                     ts = whenTs,
-                    amount = amount,
+                    amountMinor = kotlin.math.round(amount * 100.0).toLong(),
                     type = type.uppercase(Locale.getDefault()),
                     channel = channel,
                     merchant = merchant,
@@ -173,11 +251,24 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                _isImporting.value = true
+                _importProgress.value = 0 to 0
+                // Fast import: regex only
+                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(false)
                 Log.d("HomeVm", "Starting SMS import for last $monthsBack months")
                 var importedCount = 0
                 var skippedCount = 0
+                val totalSms = SmsImporter.getSmsCount(ctx, monthsBack)
+                _importProgress.value = 0 to totalSms
                 
-                SmsImporter.importRecent(ctx, monthsBack) { sender, body, ts ->
+                Log.d("HomeVm", "Found $totalSms SMS messages to process")
+                
+                SmsImporter.importWithProgress(ctx, monthsBack, 
+                    onProgress = { current, total ->
+                        _importProgress.value = current to total
+                        Log.d("HomeVm", "Processing SMS $current/$total")
+                    }
+                ) { sender, body, ts ->
                     // Launch a new coroutine for each SMS processing
                     launch {
                         try {
@@ -187,7 +278,7 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                                 SmsParser.parse(sender, body, ts)?.let { transaction ->
                                     dao.insert(transaction)
                                     importedCount++
-                                    Log.d("HomeVm", "Imported transaction: ${transaction.merchant} - ${transaction.amount}")
+                                    Log.d("HomeVm", "Imported transaction: ${transaction.merchant} - ₹${transaction.amountMinor / 100}")
                                 }
                             } else {
                                 skippedCount++
@@ -204,13 +295,66 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                 kotlinx.coroutines.delay(1000)
                 
                 // Log import results
-                Log.d("HomeVm", "SMS Import completed: $importedCount imported, $skippedCount skipped")
-                println("SMS Import completed: $importedCount imported, $skippedCount skipped")
+                Log.d("HomeVm", "SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
+                println("SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
+                _isImporting.value = false
+
+                // Re-enable AI for enrichment phase
+                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(true)
+                // Kick off background enrichment (capped, rate-limited)
+                launch { enrichInBackground(maxItems = 120, delayMsBetween = 300L) }
             } catch (e: Exception) {
                 // Log error but don't crash the app
                 Log.e("HomeVm", "Error during SMS import", e)
                 e.printStackTrace()
+                _isImporting.value = false
+                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(true)
             }
+        }
+    }
+
+    // Simple in-memory cache by template hash to avoid reclassifying repeats
+    private val enrichmentCache = mutableMapOf<String, Pair<String?, String?>>() // key -> (channel, merchant)
+
+    private suspend fun enrichInBackground(maxItems: Int = 120, delayMsBetween: Long = 300L) {
+        try {
+            val needing = dao.findNeedingEnrichment(limit = maxItems)
+            for (t in needing) {
+                try {
+                    // Build a template key using sender + body with digits normalized
+                    val key = (t.rawSender + "|" + t.rawBody.replace("\\d".toRegex(), "#")).take(512)
+                    val cached = enrichmentCache[key]
+                    val channel = cached?.first
+                    val merchant = cached?.second
+
+                    val updatedChannel: String?
+                    val updatedMerchant: String?
+
+                    if (channel != null || merchant != null) {
+                        updatedChannel = channel ?: t.channel
+                        updatedMerchant = merchant ?: t.merchant
+                    } else {
+                        // Use AI via SmsParser enrichment path by re-parsing; it will run AI since enabled
+                        val enriched = SmsParser.parse(t.rawSender, t.rawBody, t.ts)
+                        updatedChannel = enriched?.channel ?: t.channel
+                        updatedMerchant = enriched?.merchant ?: t.merchant
+                        // Cache the result for this template
+                        enrichmentCache[key] = (updatedChannel to updatedMerchant)
+                        // Rate limit between AI calls
+                        kotlinx.coroutines.delay(delayMsBetween)
+                    }
+
+                    if (updatedChannel != t.channel || updatedMerchant != t.merchant) {
+                        dao.update(t.copy(channel = updatedChannel, merchant = updatedMerchant))
+                    }
+                } catch (ie: InterruptedException) {
+                    throw ie
+                } catch (e: Exception) {
+                    Log.e("HomeVm", "Enrichment failed for id=${t.id}", e)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Background enrichment error", e)
         }
     }
 
@@ -235,6 +379,30 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Get detailed SMS processing statistics */
+    suspend fun getSmsProcessingStats(): SmsProcessingStats {
+        return try {
+            val totalTransactions = dao.getTransactionCount()
+            val smsTransactions = dao.getSmsTransactionCount()
+            val totalDebits = dao.getTotalDebits()
+            val totalCredits = dao.getTotalCredits()
+            
+            SmsProcessingStats(
+                totalSmsProcessed = smsTransactions,
+                transactionsExtracted = totalTransactions,
+                conversionRate = if (smsTransactions > 0) {
+                    (totalTransactions.toFloat() / smsTransactions * 100).toInt()
+                } else 0,
+                totalDebits = totalDebits,
+                totalCredits = totalCredits,
+                netAmount = totalCredits - totalDebits
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+            SmsProcessingStats()
+        }
+    }
+
     /** Re-import SMS (clears existing SMS data first) */
     fun reimportSms(monthsBack: Long = 6) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -249,3 +417,12 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         }
     }
 }
+
+data class SmsProcessingStats(
+    val totalSmsProcessed: Int = 0,
+    val transactionsExtracted: Int = 0,
+    val conversionRate: Int = 0,
+    val totalDebits: Double = 0.0,
+    val totalCredits: Double = 0.0,
+    val netAmount: Double = 0.0
+)

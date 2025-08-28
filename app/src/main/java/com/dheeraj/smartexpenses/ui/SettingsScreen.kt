@@ -3,6 +3,10 @@ package com.dheeraj.smartexpenses.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -12,29 +16,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import com.dheeraj.smartexpenses.ui.SmsProcessingStats
+
 
 @Composable
 fun SettingsScreen(homeVm: HomeVm) {
     val scope = rememberCoroutineScope()
-    var totalTransactions by remember { mutableStateOf(0) }
-    var smsTransactions by remember { mutableStateOf(0) }
-    var isLoading by remember { mutableStateOf(false) }
-
-    // Load transaction statistics
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showSmsLoader by remember { mutableStateOf(false) }
+    var smsCount by remember { mutableStateOf(0) }
+    var transactionCount by remember { mutableStateOf(0) }
+    var processingStatus by remember { mutableStateOf("") }
+    
+    // Load SMS and transaction counts
     LaunchedEffect(Unit) {
-        try {
-            val stats = homeVm.getTransactionStats()
-            totalTransactions = stats.first
-            smsTransactions = stats.second
-        } catch (e: Exception) {
-            // Handle error silently - don't crash the app
-            e.printStackTrace()
-        }
+        val stats = homeVm.getTransactionStats()
+        smsCount = stats.second
+        transactionCount = stats.first
     }
-
-    val rangeMode by homeVm.rangeModeState.collectAsState()
 
     LazyColumn(
         modifier = Modifier
@@ -55,170 +60,28 @@ fun SettingsScreen(homeVm: HomeVm) {
             )
         }
         
+        // SMS Management Section
         item {
             SettingsSection(
-                title = "Account",
+                title = "SMS Management",
                 items = listOf(
                     SettingsItem(
-                        icon = Icons.Outlined.Person,
-                        title = "Profile",
-                        subtitle = "Manage your account details",
-                        onClick = { /* TODO */ }
+                        icon = Icons.Outlined.Message,
+                        title = "SMS Statistics",
+                        subtitle = "$smsCount SMS messages processed into $transactionCount transactions",
+                        onClick = { /* Read-only info */ }
                     ),
                     SettingsItem(
-                        icon = Icons.Outlined.Notifications,
-                        title = "Notifications",
-                        subtitle = "Configure app notifications",
-                        onClick = { /* TODO */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Security,
-                        title = "Privacy & Security",
-                        subtitle = "Manage your privacy settings",
-                        onClick = { /* TODO */ }
+                        icon = Icons.Outlined.DeleteForever,
+                        title = "Clear All Data & Retry",
+                        subtitle = "Delete all transactions and reprocess SMS with AI",
+                        onClick = { showDeleteConfirm = true }
                     )
                 )
             )
         }
         
-        item {
-            SettingsSection(
-                title = "Preferences",
-                items = listOf(
-                    SettingsItem(
-                        icon = Icons.Outlined.DateRange,
-                        title = "Totals Date Range",
-                        subtitle = when (rangeMode) {
-                            HomeVm.RangeMode.CALENDAR_MONTH -> "Calendar month (1st to month end)"
-                            HomeVm.RangeMode.ROLLING_MONTH -> "Rolling month (today vs same day last month)"
-                        },
-                        onClick = { /* No-op: shown as static row below */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Language,
-                        title = "Language",
-                        subtitle = "English (US)",
-                        onClick = { /* TODO */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.DarkMode,
-                        title = "Theme",
-                        subtitle = "Follow system",
-                        onClick = { /* TODO */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.CurrencyExchange,
-                        title = "Currency",
-                        subtitle = "Indian Rupee (₹)",
-                        onClick = { /* TODO */ }
-                    )
-                )
-            )
-        }
-
-        item {
-            // Inline segmented control to switch range mode
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("Choose totals date range", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(12.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = rangeMode == HomeVm.RangeMode.CALENDAR_MONTH,
-                            onClick = { homeVm.setRangeMode(HomeVm.RangeMode.CALENDAR_MONTH) },
-                            label = { Text("Calendar month") },
-                            leadingIcon = if (rangeMode == HomeVm.RangeMode.CALENDAR_MONTH) {
-                                { Icon(Icons.Outlined.Check, contentDescription = null) }
-                            } else null
-                        )
-                        FilterChip(
-                            selected = rangeMode == HomeVm.RangeMode.ROLLING_MONTH,
-                            onClick = { homeVm.setRangeMode(HomeVm.RangeMode.ROLLING_MONTH) },
-                            label = { Text("Rolling month") },
-                            leadingIcon = if (rangeMode == HomeVm.RangeMode.ROLLING_MONTH) {
-                                { Icon(Icons.Outlined.Check, contentDescription = null) }
-                            } else null
-                        )
-                    }
-                }
-            }
-        }
-        
-        item {
-            SettingsSection(
-                title = "Data & Storage",
-                items = listOf(
-                    SettingsItem(
-                        icon = Icons.Outlined.CloudUpload,
-                        title = "Backup & Sync",
-                        subtitle = "Manage your data backup",
-                        onClick = { /* TODO */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Storage,
-                        title = "Storage",
-                        subtitle = "Manage app storage",
-                        onClick = { /* TODO */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Download,
-                        title = "Export Data",
-                        subtitle = "Export your transaction data",
-                        onClick = { /* TODO */ }
-                    )
-                )
-            )
-        }
-        
-        item {
-            SettingsSection(
-                title = "Transaction Data",
-                items = listOf(
-                    SettingsItem(
-                        icon = Icons.Outlined.Analytics,
-                        title = "Transaction Statistics",
-                        subtitle = "Total: $totalTransactions, SMS: $smsTransactions",
-                        onClick = { /* TODO: Show detailed stats */ }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Refresh,
-                        title = "Re-import SMS",
-                        subtitle = "Clear and re-import SMS transactions",
-                        onClick = {
-                            scope.launch {
-                                isLoading = true
-                                homeVm.reimportSms()
-                                // Refresh stats
-                                val stats = homeVm.getTransactionStats()
-                                totalTransactions = stats.first
-                                smsTransactions = stats.second
-                                isLoading = false
-                            }
-                        }
-                    ),
-                    SettingsItem(
-                        icon = Icons.Outlined.Clear,
-                        title = "Clear SMS Data",
-                        subtitle = "Remove all SMS-imported transactions",
-                        onClick = {
-                            scope.launch {
-                                isLoading = true
-                                homeVm.clearSmsTransactions()
-                                // Refresh stats
-                                val stats = homeVm.getTransactionStats()
-                                totalTransactions = stats.first
-                                smsTransactions = stats.second
-                                isLoading = false
-                            }
-                        }
-                    )
-                )
-            )
-        }
-        
+        // Support section
         item {
             SettingsSection(
                 title = "Support",
@@ -245,6 +108,7 @@ fun SettingsScreen(homeVm: HomeVm) {
             )
         }
         
+        // About section
         item {
             SettingsSection(
                 title = "About",
@@ -270,33 +134,137 @@ fun SettingsScreen(homeVm: HomeVm) {
                 )
             )
         }
-        
-        item {
-            Spacer(modifier = Modifier.height(32.dp))
-            
-            Button(
-                onClick = { /* TODO: Logout */ },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.errorContainer,
-                    contentColor = MaterialTheme.colorScheme.onErrorContainer
-                ),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Icon(Icons.Outlined.Logout, "Logout", modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Logout", fontWeight = FontWeight.SemiBold)
-            }
-        }
     }
     
-    // Loading indicator
-    if (isLoading) {
+    // Delete confirmation dialog
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Clear All Data?") },
+            text = { 
+                Text(
+                    "This will delete all $transactionCount transactions and reprocess all SMS messages. " +
+                    "This action cannot be undone. The first load may take time due to AI processing."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        showSmsLoader = true
+                        scope.launch {
+                            homeVm.clearSmsTransactions()
+                            homeVm.importRecentSms()
+                            // Reload counts after processing
+                            val stats = homeVm.getTransactionStats()
+                            smsCount = stats.second
+                            transactionCount = stats.first
+                            showSmsLoader = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Clear & Reprocess")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // SMS Processing Loader
+    if (showSmsLoader) {
+        SmsProcessingLoader(processingStatus)
+    }
+    
+
+}
+
+@Composable
+fun SmsProcessingLoader(status: String = "Processing SMS Messages") {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        // Semi-transparent background
         Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
+        )
+        
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(32.dp),
+            shape = RoundedCornerShape(20.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
-            CircularProgressIndicator()
+            Column(
+                modifier = Modifier.padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Animated loading indicator
+                CircularProgressIndicator(
+                    modifier = Modifier.size(64.dp),
+                    strokeWidth = 6.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text(
+                    text = status,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Text(
+                    text = "The first load always takes time for beautiful AI-powered insights",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                // Progress dots animation
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    repeat(3) { index ->
+                        val delay = index * 200
+                        var isVisible by remember { mutableStateOf(false) }
+                        
+                        LaunchedEffect(Unit) {
+                            kotlinx.coroutines.delay(delay.toLong())
+                            isVisible = true
+                        }
+                        
+                        AnimatedVisibility(
+                            visible = isVisible,
+                            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = androidx.compose.foundation.shape.CircleShape
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -368,12 +336,14 @@ fun SettingsItemRow(
                 )
             }
             
-            Icon(
-                imageVector = Icons.Outlined.ChevronRight,
-                contentDescription = "Navigate",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
+            if (item.title != "SMS Count") {
+                Icon(
+                    imageVector = Icons.Outlined.ChevronRight,
+                    contentDescription = "Navigate",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
         
         if (showDivider) {
@@ -391,3 +361,7 @@ data class SettingsItem(
     val subtitle: String,
     val onClick: () -> Unit
 )
+
+
+
+

@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,6 +27,7 @@ import com.dheeraj.smartexpenses.ui.theme.*
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import com.dheeraj.smartexpenses.data.amount
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -38,6 +40,8 @@ fun HomeScreen(
     val totalCredit by homeVm.totalCreditCurrentMonth.collectAsState()
     val totalDebit by homeVm.totalDebitCurrentMonth.collectAsState()
     val rangeMode by homeVm.rangeModeState.collectAsState()
+    val isImporting by homeVm.isImporting.collectAsState()
+    val importProgress by homeVm.importProgress.collectAsState()
 
     Scaffold(
         topBar = {
@@ -81,6 +85,23 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                if (isImporting) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Importing SMS...", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Spacer(Modifier.height(8.dp))
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(6.dp))
+                            val (cur, total) = importProgress
+                            Text("$cur / $total processed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 // Small inline switcher for totals range
                 Row(
@@ -317,9 +338,12 @@ fun ModernTransactionCard(transaction: Transaction) {
     
     val categoryIcon = getCategoryIcon(transaction.merchant ?: transaction.channel ?: "")
     val categoryColor = getCategoryColor(transaction.merchant ?: transaction.channel ?: "")
+    var expanded by remember { mutableStateOf(false) }
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
         shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -394,6 +418,26 @@ fun ModernTransactionCard(transaction: Transaction) {
                     text = transaction.type,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        if (expanded) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+            ) {
+                Text(
+                    "Original SMS",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = transaction.rawBody,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }

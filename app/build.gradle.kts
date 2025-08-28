@@ -81,6 +81,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
+    // ---- MediaPipe for LLM inference ----
+    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+
     // ---- tests ----
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
@@ -88,4 +91,8 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+
+    // ---- Tiny on-device inference (optional) ----
+    // Using base runtime only to keep size small; replace or add Task APIs if needed
+    implementation("org.tensorflow:tensorflow-lite:2.12.0")
 }

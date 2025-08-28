@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Transaction::class], version = 2)
+@Database(entities = [Transaction::class], version = 3)
 abstract class AppDb : RoomDatabase() {
     abstract fun txnDao(): TxnDao
 
@@ -30,6 +30,7 @@ abstract class AppDb : RoomDatabase() {
                 }
             }
         }
+        // Note: 2 -> 3 changes amount storage; relying on fallbackToDestructiveMigration since user reinstalled
         
         fun get(ctx: Context): AppDb = I ?: synchronized(this) {
             I ?: try {

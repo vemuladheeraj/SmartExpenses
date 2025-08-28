@@ -8,6 +8,9 @@ interface TxnDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(t: Transaction)
 
+    @Update
+    suspend fun update(t: Transaction)
+
     @Query("SELECT * FROM transactions WHERE ts BETWEEN :start AND :end ORDER BY ts DESC")
     fun inRange(start: Long, end: Long): Flow<List<Transaction>>
 
@@ -26,10 +29,10 @@ interface TxnDao {
     @Query("SELECT DISTINCT channel FROM transactions WHERE channel IS NOT NULL AND channel != '' ORDER BY channel")
     fun getAllChannels(): Flow<List<String>>
 
-    @Query("SELECT IFNULL(SUM(CASE WHEN type='DEBIT' THEN amount END),0) FROM transactions WHERE ts BETWEEN :start AND :end")
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='DEBIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE ts BETWEEN :start AND :end")
     fun totalDebits(start: Long, end: Long): Flow<Double>
 
-    @Query("SELECT IFNULL(SUM(CASE WHEN type='CREDIT' THEN amount END),0) FROM transactions WHERE ts BETWEEN :start AND :end")
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='CREDIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE ts BETWEEN :start AND :end")
     fun totalCredits(start: Long, end: Long): Flow<Double>
 
     @Query("SELECT COUNT(*) FROM transactions WHERE rawSender = :sender AND rawBody = :body AND ts = :timestamp")
@@ -43,4 +46,14 @@ interface TxnDao {
 
     @Query("SELECT COUNT(*) FROM transactions WHERE source = 'SMS'")
     suspend fun getSmsTransactionCount(): Int
+
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='DEBIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source = 'SMS'")
+    suspend fun getTotalDebits(): Double
+
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='CREDIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source = 'SMS'")
+    suspend fun getTotalCredits(): Double
+
+    // Enrichment helpers: find recent transactions missing details
+    @Query("SELECT * FROM transactions WHERE source = 'SMS' AND (merchant IS NULL OR channel IS NULL) ORDER BY ts DESC LIMIT :limit")
+    suspend fun findNeedingEnrichment(limit: Int = 200): List<Transaction>
 }
