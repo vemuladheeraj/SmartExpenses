@@ -10,6 +10,8 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.IntBuffer
 import java.util.Locale
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 /**
  * Multi-task SMS classifier that extracts multiple pieces of information from SMS text.
@@ -22,6 +24,7 @@ class SmsMultiTaskClassifier(
 ) {
     private var interpreter: Interpreter? = null
     private var isModelLoaded = false
+    private var tokenizer: SimpleSentencePieceTokenizer? = null
     private var inputTensorName: String = "serving_default_input_ids:0"
     private var outputTensorNames: Map<String, String> = mapOf(
         "direction" to "StatefulPartitionedCall_1:4",
@@ -129,6 +132,15 @@ class SmsMultiTaskClassifier(
             // Initialize output buffers based on model structure
             initializeOutputBuffers()
             
+            // Load tokenizer
+            tokenizer = SimpleSentencePieceTokenizer(context)
+            val tokenizerLoaded = tokenizer?.loadVocab() ?: false
+            if (!tokenizerLoaded) {
+                Log.w(TAG, "Failed to load tokenizer, will use fallback tokenization")
+            } else {
+                Log.d(TAG, "Tokenizer loaded successfully")
+            }
+            
             isModelLoaded = true
             Log.d(TAG, "Multi-task model loaded successfully: $inputCount inputs, $outputCount outputs")
             true
@@ -147,8 +159,8 @@ class SmsMultiTaskClassifier(
         Log.d(TAG, "=== MODEL LOADING START ===")
         Log.d(TAG, "loadModelWithFallback() method called")
         
-        // Only try the multi-task model
-        val success = loadModel("sms_multi_task.tflite")
+        // Only try the transaction model
+        val success = loadModel("transaction_model.tflite")
         
         if (success) {
             Log.d(TAG, "Multi-task model loaded successfully")
@@ -335,9 +347,25 @@ class SmsMultiTaskClassifier(
     }
     
     /**
-     * Preprocess text to token IDs
+     * Preprocess text to token IDs using proper tokenizer
      */
     private fun preprocessText(text: String): IntArray {
+        val tokenIds = tokenizer?.tokenize(text) ?: fallbackTokenize(text)
+        
+        // Ensure proper length
+        return if (tokenIds.size > MAX_SEQUENCE_LENGTH) {
+            tokenIds.take(MAX_SEQUENCE_LENGTH).toIntArray()
+        } else if (tokenIds.size < MAX_SEQUENCE_LENGTH) {
+            tokenIds + IntArray(MAX_SEQUENCE_LENGTH - tokenIds.size) { 1 } // Pad with PAD_ID
+        } else {
+            tokenIds
+        }
+    }
+    
+    /**
+     * Fallback tokenization when tokenizer is not available
+     */
+    private fun fallbackTokenize(text: String): IntArray {
         val cleaned = text.lowercase(Locale.ROOT)
             .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
             .trim()
@@ -353,7 +381,7 @@ class SmsMultiTaskClassifier(
         
         // Pad to MAX_SEQUENCE_LENGTH
         while (tokenIds.size < MAX_SEQUENCE_LENGTH) {
-            tokenIds.add(0) // PAD token
+            tokenIds.add(1) // PAD token
         }
         
         return tokenIds.toIntArray()
@@ -654,6 +682,7 @@ class SmsMultiTaskClassifier(
     fun close() {
         interpreter?.close()
         interpreter = null
+        tokenizer = null
         isModelLoaded = false
     }
 }
@@ -676,4 +705,122 @@ data class SmsAnalysis(
  */
 enum class TransactionDirection {
     DEBIT, CREDIT, NONE
+}
+
+/**
+ * Simple SentencePiece-like tokenizer implementation
+ * This is a simplified version that uses the vocab file for tokenization
+ */
+class SimpleSentencePieceTokenizer(private val context: Context) {
+    private val vocab = mutableMapOf<String, Int>()
+    private val reverseVocab = mutableMapOf<Int, String>()
+    private var isLoaded = false
+    
+    companion object {
+        private const val TAG = "SimpleSentencePieceTokenizer"
+        private const val UNK_TOKEN = "<unk>"
+        private const val PAD_TOKEN = "<pad>"
+        private const val UNK_ID = 0
+        private const val PAD_ID = 1
+    }
+    
+    /**
+     * Load vocabulary from assets
+     */
+    fun loadVocab(): Boolean {
+        return try {
+            context.assets.open("sms_tokenizer.vocab").use { inputStream ->
+                BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                    var lineNumber = 0
+                    reader.lineSequence().forEach { line ->
+                        val parts = line.trim().split("\t")
+                        if (parts.size >= 2) {
+                            val token = parts[0]
+                            val id = parts[1].toInt()
+                            vocab[token] = id
+                            reverseVocab[id] = token
+                        }
+                        lineNumber++
+                    }
+                }
+            }
+            
+            // Add special tokens if not present
+            if (!vocab.containsKey(UNK_TOKEN)) {
+                vocab[UNK_TOKEN] = UNK_ID
+                reverseVocab[UNK_ID] = UNK_TOKEN
+            }
+            if (!vocab.containsKey(PAD_TOKEN)) {
+                vocab[PAD_TOKEN] = PAD_ID
+                reverseVocab[PAD_ID] = PAD_TOKEN
+            }
+            
+            isLoaded = true
+            Log.d(TAG, "Vocabulary loaded successfully with ${vocab.size} tokens")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load vocabulary: ${e.message}", e)
+            false
+        }
+    }
+    
+    /**
+     * Tokenize text using vocabulary
+     */
+    fun tokenize(text: String): IntArray {
+        if (!isLoaded) {
+            Log.w(TAG, "Vocabulary not loaded, using fallback tokenization")
+            return fallbackTokenize(text)
+        }
+        
+        val cleaned = text.lowercase(Locale.ROOT)
+            .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+            .trim()
+        
+        val words = cleaned.split("\\s+".toRegex())
+            .filter { it.isNotBlank() }
+        
+        val tokenIds = words.map { word ->
+            vocab[word] ?: vocab[UNK_TOKEN] ?: UNK_ID
+        }
+        
+        return tokenIds.toIntArray()
+    }
+    
+    /**
+     * Fallback tokenization when vocab is not available
+     */
+    private fun fallbackTokenize(text: String): IntArray {
+        val cleaned = text.lowercase(Locale.ROOT)
+            .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+            .trim()
+        
+        val tokens = cleaned.split("\\s+".toRegex())
+            .filter { it.isNotBlank() }
+            .take(200) // MAX_SEQUENCE_LENGTH
+        
+        val tokenIds = tokens.map { token ->
+            (token.hashCode() % 8000).let { if (it < 0) it + 8000 else it }
+        }.toMutableList()
+        
+        // Pad to 200
+        while (tokenIds.size < 200) {
+            tokenIds.add(PAD_ID)
+        }
+        
+        return tokenIds.toIntArray()
+    }
+    
+    /**
+     * Detokenize token IDs back to text
+     */
+    fun detokenize(tokenIds: IntArray): String {
+        if (!isLoaded) {
+            return tokenIds.joinToString(" ")
+        }
+        
+        return tokenIds.toList().mapNotNull { id ->
+            reverseVocab[id]?.takeIf { it != PAD_TOKEN }
+        }.joinToString(" ")
+    }
 }

@@ -38,22 +38,22 @@ interface TxnDao {
     @Query("SELECT COUNT(*) FROM transactions WHERE rawSender = :sender AND rawBody = :body AND ts = :timestamp")
     suspend fun exists(sender: String, body: String, timestamp: Long): Int
 
-    @Query("DELETE FROM transactions WHERE source = 'SMS'")
+    @Query("DELETE FROM transactions WHERE source LIKE 'SMS%'")
     suspend fun clearSmsTransactions()
 
     @Query("SELECT COUNT(*) FROM transactions")
     suspend fun getTransactionCount(): Int
 
-    @Query("SELECT COUNT(*) FROM transactions WHERE source = 'SMS'")
+    @Query("SELECT COUNT(*) FROM transactions WHERE source LIKE 'SMS%'")
     suspend fun getSmsTransactionCount(): Int
 
-    @Query("SELECT IFNULL(SUM(CASE WHEN type='DEBIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source = 'SMS'")
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='DEBIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source LIKE 'SMS%'")
     suspend fun getTotalDebits(): Double
 
-    @Query("SELECT IFNULL(SUM(CASE WHEN type='CREDIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source = 'SMS'")
+    @Query("SELECT IFNULL(SUM(CASE WHEN type='CREDIT' THEN amountMinor END),0)/100.0 FROM transactions WHERE source LIKE 'SMS%'")
     suspend fun getTotalCredits(): Double
 
     // Enrichment helpers: find recent transactions missing details
-    @Query("SELECT * FROM transactions WHERE source = 'SMS' AND (merchant IS NULL OR channel IS NULL) ORDER BY ts DESC LIMIT :limit")
+    @Query("SELECT * FROM transactions WHERE source LIKE 'SMS%' AND (merchant IS NULL OR channel IS NULL) ORDER BY ts DESC LIMIT :limit")
     suspend fun findNeedingEnrichment(limit: Int = 200): List<Transaction>
 }

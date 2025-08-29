@@ -15,8 +15,8 @@ object SmsClassifierTest {
     fun testClassifier(context: Context): String {
         val classifier = SmsMultiTaskClassifier(context)
         
-        if (!classifier.loadModel("sms_multi_task.tflite")) {
-            return "❌ Failed to load multi-task model"
+        if (!classifier.loadModel("transaction_model.tflite")) {
+            return "❌ Failed to load transaction model"
         }
         
         val testCases = listOf(
@@ -63,8 +63,8 @@ object SmsClassifierTest {
     fun testSpecificSms(context: Context, smsText: String): String {
         val classifier = SmsMultiTaskClassifier(context)
         
-        if (!classifier.loadModel("sms_multi_task.tflite")) {
-            return "❌ Failed to load multi-task model"
+        if (!classifier.loadModel("transaction_model.tflite")) {
+            return "❌ Failed to load transaction model"
         }
         
         return try {

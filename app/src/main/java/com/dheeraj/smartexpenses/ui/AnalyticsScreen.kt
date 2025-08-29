@@ -1,6 +1,7 @@
 package com.dheeraj.smartexpenses.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -11,6 +12,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,18 +29,17 @@ import java.text.NumberFormat
 import java.util.*
 import com.dheeraj.smartexpenses.data.amount
 import android.util.Log
-import java.util.regex.Pattern
 
 // Chart imports temporarily disabled for multi-task model integration
 
 @Composable
 fun AnalyticsScreen(homeVm: HomeVm) {
     val allTransactions by homeVm.allItems.collectAsState()
-    var monthsBack by remember { mutableStateOf(3f) }
-    var selectedMonthIndex by remember { mutableStateOf<Int?>(null) }
+    var selectedMonths by remember { mutableStateOf(setOf(0)) } // default to current month
+    val monthRangeToShow = 12
     var fromDateMillis by remember { mutableStateOf<Long?>(null) }
     var toDateMillis by remember { mutableStateOf<Long?>(null) }
-    var showMonthlyOverview by remember { mutableStateOf(true) }
+    var showMonthlyOverview by remember { mutableStateOf(false) }
     var showRangeOverview by remember { mutableStateOf(true) }
     var showInsights by remember { mutableStateOf(true) }
     var showCategories by remember { mutableStateOf(true) }
@@ -48,51 +49,52 @@ fun AnalyticsScreen(homeVm: HomeVm) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
 
     val now = System.currentTimeMillis()
-    val (rangeStart, rangeEnd) = remember(monthsBack, selectedMonthIndex, fromDateMillis, toDateMillis, now) {
-        if (fromDateMillis != null && toDateMillis != null && fromDateMillis!! <= toDateMillis!!) {
-            fromDateMillis!! to toDateMillis!!
-        } else if (selectedMonthIndex != null) {
-            val cal = Calendar.getInstance()
-            cal.add(Calendar.MONTH, -selectedMonthIndex!!)
-            cal.set(Calendar.DAY_OF_MONTH, 1)
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            val start = cal.timeInMillis
-            cal.add(Calendar.MONTH, 1)
-            (start to cal.timeInMillis - 1)
-        } else {
-            val cal = Calendar.getInstance()
-            cal.timeInMillis = now
-            cal.add(Calendar.MONTH, -monthsBack.toInt())
-            cal.set(Calendar.HOUR_OF_DAY, 0)
-            cal.set(Calendar.MINUTE, 0)
-            cal.set(Calendar.SECOND, 0)
-            cal.set(Calendar.MILLISECOND, 0)
-            (cal.timeInMillis to now)
-        }
-    }
-
-    val rangeLabel = remember(rangeStart, rangeEnd, selectedMonthIndex) {
+    // Build a label from selected chips like: Jan '25, Feb '25
+    val selectedChipsLabel = remember(selectedMonths) {
+        if (selectedMonths.isEmpty()) return@remember "Last 3 months"
         val cal = Calendar.getInstance()
-        if (selectedMonthIndex != null) {
-            cal.timeInMillis = rangeStart
-            val month = cal.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.getDefault()) ?: ""
-            val year = cal.get(Calendar.YEAR)
-            "$month $year"
-        } else {
-            val df = java.text.SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
-            df.format(Date(rangeStart)) + " - " + df.format(Date(rangeEnd))
+        val labels = selectedMonths.toList().sorted().map { idx ->
+            cal.timeInMillis = System.currentTimeMillis()
+            cal.add(Calendar.MONTH, -idx)
+            val m = cal.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) ?: ""
+            val y = (cal.get(Calendar.YEAR) % 100).toString().padStart(2, '0')
+            "$m '$y"
+        }
+        labels.joinToString(", ")
+    }
+
+    val rangeTransactions = remember(allTransactions, selectedMonths, now) {
+        val cal = Calendar.getInstance()
+        allTransactions.filter { t ->
+            if (selectedMonths.isNotEmpty()) {
+                selectedMonths.any { idx ->
+                    cal.timeInMillis = now
+                    cal.add(Calendar.MONTH, -idx)
+                    val selMonth = cal.get(Calendar.MONTH)
+                    val selYear = cal.get(Calendar.YEAR)
+                    val txCal = Calendar.getInstance().apply { timeInMillis = t.ts }
+                    txCal.get(Calendar.MONTH) == selMonth && txCal.get(Calendar.YEAR) == selYear
+                }
+            } else {
+                // Default to last 3 months when none selected
+                val cutoff = Calendar.getInstance().apply { add(Calendar.MONTH, -3) }.timeInMillis
+                t.ts >= cutoff
+            }
         }
     }
 
-    val rangeTransactions = remember(allTransactions, rangeStart, rangeEnd) {
-        allTransactions.filter { it.ts in rangeStart..rangeEnd }
+    // Exclude inter-account transfers and paired same-amount debit/credit
+    val pairedIds = remember(rangeTransactions) { findPairedTransferIds(rangeTransactions) }
+    val totalCredit = remember(rangeTransactions) {
+        rangeTransactions
+            .filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in pairedIds }
+            .sumOf { it.amount }
     }
-
-    val totalCredit = remember(rangeTransactions) { rangeTransactions.filter { it.type == "CREDIT" }.sumOf { it.amount } }
-    val totalDebit  = remember(rangeTransactions) { rangeTransactions.filter { it.type == "DEBIT"  }.sumOf { it.amount } }
+    val totalDebit  = remember(rangeTransactions) {
+        rangeTransactions
+            .filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in pairedIds }
+            .sumOf { it.amount }
+    }
     val balance     = totalCredit - totalDebit
 
     LazyColumn(
@@ -103,70 +105,33 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("Analytics · $rangeLabel", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Track your spending patterns", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
 
-        // AI Model Test Section
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Text(
-                        text = "🤖 Multi-Task AI Model Test",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Test the new multi-task SMS classifier model",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    val context = LocalContext.current
-                    Button(
-                        onClick = {
-                            // Test the AI model
-                            val testResult = SmsClassifierTest.testClassifier(context)
-                            Log.d("AnalyticsScreen", "AI Model Test Result: $testResult")
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.PlayArrow,
-                            contentDescription = "Test AI Model"
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Test Multi-Task AI Model")
-                    }
-                }
-            }
-        }
+        // Removed AI model test section to declutter analytics
 
         item {
             Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Controls", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
-                    Text("Last ${monthsBack.toInt()} month(s)")
-                    Slider(value = monthsBack, onValueChange = { monthsBack = it; selectedMonthIndex = null; fromDateMillis = null; toDateMillis = null }, valueRange = 1f..6f, steps = 4)
-                    Spacer(Modifier.height(8.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.horizontalScroll(rememberScrollState())
                     ) {
-                        repeat(6) { idx ->
+                        repeat(monthRangeToShow) { idx ->
                             val cal = Calendar.getInstance().apply { add(Calendar.MONTH, -idx) }
                             val label = (cal.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) ?: "Unknown") + " '" + (cal.get(Calendar.YEAR) % 100)
-                            FilterChip(selected = selectedMonthIndex == idx, onClick = {
-                                if (selectedMonthIndex == idx) selectedMonthIndex = null else selectedMonthIndex = idx
+                            val isSelected = selectedMonths.contains(idx)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedMonths = if (isSelected) selectedMonths - idx else selectedMonths + idx
                                 fromDateMillis = null; toDateMillis = null
-                            }, label = { Text(label) })
+                                },
+                                label = { Text(label) }
+                            )
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -211,22 +176,21 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         }
 
         if (showRangeOverview) {
-            item { MonthlyOverviewCard(titleSuffix = rangeLabel, totalCredit = totalCredit, totalDebit = totalDebit, balance = balance, currencyFormat = currencyFormat) }
-            item { EnhancedOverviewCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { MonthlyOverviewCard(titleSuffix = selectedChipsLabel, totalCredit = totalCredit, totalDebit = totalDebit, balance = balance, currencyFormat = currencyFormat) }
+            item { EnhancedOverviewCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
         if (showInsights) {
-            item { SpendingInsightsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { SpendingInsightsCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
         if (showCategories) {
-            item { CategoryBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { CategoryBreakdownCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
-        item { TransactionTypeBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { ChannelBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { TopMerchantsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { BiggestExpensesCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TransactionTypeBreakdownCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TopMerchantsCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { BiggestExpensesCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         
         // Chart components temporarily disabled for multi-task model integration
         if (showCharts) {
@@ -237,27 +201,43 @@ fun AnalyticsScreen(homeVm: HomeVm) {
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
                     Column(Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("📊 Charts & Analytics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            InfoIconWithDialog(title = "Charts & Analytics", body = "Visual summaries like weekly trend and monthly comparison.")
+                        }
+                        if (!selectedChipsLabel.isNullOrBlank()) Text(selectedChipsLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(8.dp))
                         Text(
-                            "📊 Charts & Analytics · $rangeLabel",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(Modifier.height(16.dp))
-                        Text(
-                            "Advanced chart functionality is being integrated with the new multi-task AI model. Coming soon!",
+                            "Visualize spending and income trends for the selected period.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
             }
-            item { RecentTrendsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { WeeklySpendingChart(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
         
         if (showAdvancedAnalytics) {
-            item { SavingsGoalCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
-            item { SpendingPatternsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { SavingsGoalCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { SpendingPatternsCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
+    }
+}
+
+@Composable
+fun InfoIconWithDialog(title: String, body: String) {
+    var open by remember { mutableStateOf(false) }
+    IconButton(onClick = { open = true }) {
+        Icon(imageVector = Icons.Outlined.Info, contentDescription = "Info")
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            confirmButton = { TextButton(onClick = { open = false }) { Text("OK") } },
+            title = { Text(title) },
+            text = { Text(body) }
+        )
     }
 }
 
@@ -279,7 +259,11 @@ fun TopMerchantsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Top Merchants" + (titleSuffix?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Top Merchants", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Top Merchants", body = "Shows where you spent the most (grouped by merchant/person). Uses extracted names from SMS; may not always be perfect.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             totals.take(10).forEach { (name, amount) ->
                 Row(
@@ -312,7 +296,11 @@ fun BiggestExpensesCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Biggest Expenses" + (titleSuffix?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Biggest Expenses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Biggest Expenses", body = "Top individual transactions by amount. Each row is a single expense, not grouped.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             biggest.forEach { t ->
                 Row(
@@ -345,11 +333,11 @@ fun MonthlyOverviewCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                "Monthly Overview" + (titleSuffix?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Monthly Overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Monthly Overview", body = "Income, expenses, and balance for the selected months.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -427,11 +415,11 @@ fun SpendingInsightsCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                "Spending Insights" + (titleSuffix?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Spending Insights", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Spending Insights", body = "High-level stats: average spend, biggest spend, and transaction counts.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -529,11 +517,11 @@ fun CategoryBreakdownCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                "Category Breakdown" + (titleSuffix?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Category Breakdown", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Category Breakdown", body = "Estimated categorization based on merchant names; shows top categories and shares.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -548,19 +536,30 @@ fun CategoryBreakdownCard(
             } else {
                 // Chart temporarily disabled - Vico library integration in progress
                 if (sortedCategories.size > 1) {
-                    Box(
+                    Canvas(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(120.dp)
+                            .height(140.dp)
                             .padding(bottom = 16.dp)
                     ) {
-                        Text(
-                            "📊 Category Distribution Chart",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        val values = sortedCategories.map { it.second }
+                        val labels = sortedCategories.map { it.first }
+                        val maxVal = (values.maxOrNull() ?: 0.0).coerceAtLeast(1.0)
+                        val barCount = values.size.coerceAtMost(5)
+                        val barSpacing = 16f
+                        val contentWidth = size.width
+                        val contentHeight = size.height
+                        val barWidth = (contentWidth - (barSpacing * (barCount + 1))) / barCount
+                        for (i in 0 until barCount) {
+                            val v = values[i].toFloat()
+                            val h = (v / maxVal.toFloat()) * (contentHeight * 0.8f)
+                            val left = barSpacing + i * (barWidth + barSpacing)
+                            val top = contentHeight - h
+                            val right = left + barWidth
+                            val bottom = contentHeight
+                            val color = categoryColorStatic(labels[i])
+                            drawRect(color = color, topLeft = androidx.compose.ui.geometry.Offset(left, top), size = androidx.compose.ui.geometry.Size(barWidth, h))
+                        }
                     }
                 }
                 
@@ -657,118 +656,63 @@ fun CategoryItem(
 }
 
 @Composable
-fun RecentTrendsCard(
+fun WeeklySpendingChart(
     titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val recentTransactions = transactions.take(10)
-    val dailySpending = recentTransactions
-        .filter { it.type == "DEBIT" }
-        .groupBy { 
-            val calendar = Calendar.getInstance()
-            calendar.timeInMillis = it.ts
-            calendar.get(Calendar.DAY_OF_MONTH)
-        }
-        .mapValues { it.value.sumOf { transaction -> transaction.amount } }
-        .toList()
-        .sortedBy { it.first }
-
-    val chartEntries = dailySpending.mapIndexed { index, (day, amount) ->
-        // Chart data temporarily disabled
-        index.toFloat() to amount.toFloat()
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    val days = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    val totalsByDay = MutableList(7) { 0.0 }
+    debitTransactions.forEach { t ->
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = t.ts
+        val idx = (cal.get(Calendar.DAY_OF_WEEK) - 1).coerceIn(0, 6)
+        totalsByDay[idx] = totalsByDay[idx] + t.amount
     }
+    val maxVal = totalsByDay.maxOrNull() ?: 0.0
 
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Text(
-                "Recent Spending Trends" + (titleSuffix?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            if (chartEntries.isNotEmpty()) {
-                // Chart temporarily disabled - Vico library integration in progress
-                Box(
+        Column(Modifier.padding(20.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Weekly Spending", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Weekly Spending", body = "Bars show total spent each weekday across the selection.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(16.dp))
+            Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "📈 Daily Spending Trend Chart\n(Coming Soon with Multi-Task AI)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
+                    .padding(horizontal = 8.dp)
+            ) {
+                val width = size.width
+                val height = size.height
+                val barSpacing = 16f
+                val barWidth = (width - (barSpacing * (7 + 1))) / 7f
+                val chartHeight = height * 0.8f
+                for (i in 0 until 7) {
+                    val value = totalsByDay[i].toFloat()
+                    val h = if (maxVal > 0) (value / maxVal.toFloat()) * chartHeight else 0f
+                    val left = barSpacing + i * (barWidth + barSpacing)
+                    val top = height - h
+                    drawRect(
+                        color = ErrorRed,
+                        topLeft = androidx.compose.ui.geometry.Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(barWidth, h)
                     )
                 }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                // Summary stats
+            }
+            Spacer(Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = dailySpending.size.toString(),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = PrimaryBlue
-                        )
-                        Text(
-                            text = "Days Tracked",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = currencyFormat.format(dailySpending.sumOf { it.second }),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = ErrorRed
-                        )
-                        Text(
-                            text = "Total Spent",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val avg = if (dailySpending.isNotEmpty()) dailySpending.sumOf { it.second } / dailySpending.size else 0.0
-                        Text(
-                            text = currencyFormat.format(avg),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = WarningOrange
-                        )
-                        Text(
-                            text = "Daily Avg",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                Text(
-                    "No recent spending data",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                days.forEach { d -> Text(d, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
@@ -830,9 +774,10 @@ fun TransactionTypeBreakdownCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val creditTransactions = transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) }
-    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) }
-    val transferTransactions = transactions.filter { isInterAccountTransfer(it) }
+    val paired = remember(transactions) { findPairedTransferIds(transactions) }
+    val creditTransactions = transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in paired }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
+    val transferTransactions = transactions.filter { isInterAccountTransfer(it) || it.id in paired }
     
     val totalCredit = creditTransactions.sumOf { it.amount }
     val totalDebit = debitTransactions.sumOf { it.amount }
@@ -846,11 +791,11 @@ fun TransactionTypeBreakdownCard(
         Column(
             modifier = Modifier.padding(20.dp)
         ) {
-            Text(
-                "Transaction Type Breakdown" + (titleSuffix?.let { " · $it" } ?: ""),
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Transaction Type Breakdown", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                InfoIconWithDialog(title = "Transaction Type", body = "Split between income, expenses, and transfers in the selected period.")
+            }
+            if (!titleSuffix.isNullOrBlank()) Text(titleSuffix, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             
             Spacer(modifier = Modifier.height(16.dp))
             
@@ -1012,6 +957,41 @@ private fun isInterAccountTransfer(transaction: Transaction): Boolean {
             (body.contains("account") || body.contains("a/c")))
 }
 
+// Pair same-amount credit/debit within a 2-hour window to identify likely internal transfers
+private fun findPairedTransferIds(transactions: List<Transaction>, timeWindowMillis: Long = 2 * 60 * 60 * 1000): Set<Long> {
+    if (transactions.isEmpty()) return emptySet()
+
+    val credits = transactions.filter { it.type == "CREDIT" }.sortedBy { it.ts }
+    val debits  = transactions.filter { it.type == "DEBIT"  }.sortedBy { it.ts }
+
+    val pairedIds = mutableSetOf<Long>()
+    var i = 0
+    var j = 0
+
+    while (i < credits.size && j < debits.size) {
+        val c = credits[i]
+        val d = debits[j]
+        val dt = kotlin.math.abs(c.ts - d.ts)
+
+        if (c.ts < d.ts && (d.ts - c.ts) > timeWindowMillis) { i++; continue }
+        if (d.ts < c.ts && (c.ts - d.ts) > timeWindowMillis) { j++; continue }
+
+        val amountMatch = kotlin.math.abs(c.amount - d.amount) < 0.01
+        val bankMatch = c.bank != null && d.bank != null && c.bank == d.bank
+        val tailMatch = c.accountTail != null && d.accountTail != null && c.accountTail == d.accountTail
+
+        if (dt <= timeWindowMillis && amountMatch && (bankMatch || tailMatch)) {
+            pairedIds += c.id
+            pairedIds += d.id
+            i++; j++
+        } else {
+            if (c.ts <= d.ts) i++ else j++
+        }
+    }
+
+    return pairedIds
+}
+
 // ===== NEW ENHANCED CHART COMPONENTS =====
 
 @Composable
@@ -1112,19 +1092,30 @@ fun CategoryPieChart(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     // Pie Chart
-                    Box(
+                    Canvas(
                         modifier = Modifier
                             .weight(1f)
                             .height(200.dp)
                     ) {
-                        // Chart temporarily disabled - Vico library integration in progress
-                        Text(
-                            "📊 Category Pie Chart\n(Coming Soon with Multi-Task AI)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        val total = sortedCategories.sumOf { it.second }
+                        if (total <= 0) return@Canvas
+                        var startAngle = -90f
+                        val radius = size.minDimension / 2f * 0.8f
+                        val center = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f)
+                        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = radius * 0.3f)
+                        sortedCategories.take(6).forEach { (cat, amount) ->
+                            val sweep = (amount / total).toFloat() * 360f
+                            drawArc(
+                                color = categoryColorStatic(cat),
+                                startAngle = startAngle,
+                                sweepAngle = sweep,
+                                useCenter = false,
+                                topLeft = androidx.compose.ui.geometry.Offset(center.x - radius, center.y - radius),
+                                size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2),
+                                style = stroke
+                            )
+                            startAngle += sweep
+                        }
                     }
                     
                     // Category Legend
@@ -1146,7 +1137,7 @@ fun CategoryPieChart(
                                     modifier = Modifier
                                         .size(12.dp)
                                         .clip(CircleShape)
-                                        .background(getCategoryColor(category))
+                                        .background(categoryColorStatic(category))
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -1158,7 +1149,7 @@ fun CategoryPieChart(
                                     text = "${"%.1f".format(percentage)}%",
                                     style = MaterialTheme.typography.bodySmall,
                                     fontWeight = FontWeight.Bold,
-                                    color = getCategoryColor(category)
+                                    color = categoryColorStatic(category)
                                 )
                             }
                         }
@@ -1197,12 +1188,8 @@ fun MonthlyComparisonChart(
         }
     }
     
-    val sortedMonths = monthlyData.toList().sortedBy { (month, _) ->
-        val cal = Calendar.getInstance()
-        cal.timeInMillis = transactions.firstOrNull()?.ts ?: 0L
-        // Sort by actual month order
-        month
-    }
+    val monthOrder = listOf("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+    val sortedMonths = monthlyData.toList().sortedWith(compareBy({ it.first.takeLast(2).toIntOrNull() ?: 0 }, { monthOrder.indexOf(it.first.take(3)) }))
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -1218,21 +1205,37 @@ fun MonthlyComparisonChart(
             Spacer(Modifier.height(16.dp))
             
             if (sortedMonths.isNotEmpty()) {
-                // Chart temporarily disabled - Vico library integration in progress
-                Box(
+                Canvas(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(250.dp)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(8.dp)
                 ) {
-                    Text(
-                        "📊 Monthly Income vs Expenses Chart\n(Coming Soon with Multi-Task AI)",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
+                    val data = sortedMonths
+                    val maxVal = data.maxOf { maxOf(it.second.first, it.second.second) }.coerceAtLeast(1.0)
+                    val count = data.size.coerceAtMost(6)
+                    val groupSpacing = 20f
+                    val barSpacing = 8f
+                    val barWidth = ((size.width - (groupSpacing * (count + 1))) / count - barSpacing) / 2f
+                    val chartHeight = size.height * 0.8f
+                    fun barHeight(v: Double) = (v / maxVal) * chartHeight
+                    for (i in 0 until count) {
+                        val (_, pair) = data[i]
+                        val income = barHeight(pair.first).toFloat()
+                        val expense = barHeight(pair.second).toFloat()
+                        val leftBase = groupSpacing + i * ((barWidth * 2) + barSpacing + groupSpacing)
+                        val bottom = size.height * 0.9f
+                        drawRect(
+                            color = SuccessGreen,
+                            topLeft = androidx.compose.ui.geometry.Offset(leftBase, bottom - income),
+                            size = androidx.compose.ui.geometry.Size(barWidth, income)
+                        )
+                        drawRect(
+                            color = ErrorRed,
+                            topLeft = androidx.compose.ui.geometry.Offset(leftBase + barWidth + barSpacing, bottom - expense),
+                            size = androidx.compose.ui.geometry.Size(barWidth, expense)
+                        )
+                    }
                 }
                 
                 Spacer(Modifier.height(16.dp))
@@ -1526,7 +1529,6 @@ fun SpendingPatternsCard(
     }
 }
 
-@Composable
 fun getCategoryFromMerchant(merchant: String): String {
     return when {
         merchant.contains("food", ignoreCase = true) || 
@@ -1562,6 +1564,21 @@ fun getCategoryFromMerchant(merchant: String): String {
         merchant.contains("education", ignoreCase = true) -> "Education"
         
         else -> "Other"
+    }
+}
+
+// Non-composable color mapping for charts and legends
+private fun categoryColorStatic(categoryOrMerchant: String): Color {
+    val category = getCategoryFromMerchant(categoryOrMerchant)
+    return when (category) {
+        "Food" -> ErrorRed
+        "Transport" -> PrimaryBlue
+        "Shopping" -> AccentPurple
+        "Entertainment" -> WarningOrange
+        "Bills" -> AccentPurple
+        "Health" -> SuccessGreen
+        "Education" -> PrimaryBlue
+        else -> PrimaryBlue
     }
 }
 

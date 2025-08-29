@@ -404,6 +404,10 @@ fun ModernTransactionCard(transaction: Transaction) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+                    // Source indicator
+                    Spacer(modifier = Modifier.width(6.dp))
+                    SourceIndicator(source = transaction.source)
                 }
             }
             
@@ -445,6 +449,29 @@ fun ModernTransactionCard(transaction: Transaction) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SourceIndicator(source: String) {
+    val (icon, tint, desc) = when {
+        source.equals("SMS_AI", ignoreCase = true) -> Triple(Icons.Outlined.AutoAwesome, AccentPurple, "AI extracted")
+        source.equals("SMS_REGEX", ignoreCase = true) -> Triple(Icons.Outlined.Rule, PrimaryBlue, "Regex extracted")
+        source.equals("MANUAL", ignoreCase = true) -> Triple(Icons.Outlined.Edit, MaterialTheme.colorScheme.onSurfaceVariant, "Manual")
+        else -> Triple(Icons.Outlined.Info, MaterialTheme.colorScheme.onSurfaceVariant, source)
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = " • ",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Icon(
+            imageVector = icon,
+            contentDescription = desc,
+            tint = tint,
+            modifier = Modifier.size(14.dp)
+        )
     }
 }
 

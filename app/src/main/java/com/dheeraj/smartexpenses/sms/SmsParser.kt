@@ -107,7 +107,7 @@ object SmsParser {
                     merchant = aiAnalysis.merchant?.let { cleanMerchant(it) },
                     accountTail = extractAccountTail(body),
                     bank = bankFromSender[sender] ?: "Unknown",
-                    source = "SMS",
+                    source = "SMS_AI",
                     rawSender = sender,
                     rawBody = body
                 )
@@ -175,7 +175,7 @@ object SmsParser {
             merchant = merchant,
             accountTail = extractAccountTail(body),
             bank = bankFromSender[sender] ?: "Unknown",
-            source = "SMS",
+            source = "SMS_REGEX",
             rawSender = sender,
             rawBody = body
         )
