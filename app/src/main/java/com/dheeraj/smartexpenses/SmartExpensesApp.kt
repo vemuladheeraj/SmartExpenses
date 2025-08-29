@@ -2,8 +2,8 @@ package com.dheeraj.smartexpenses
 
 import android.app.Application
 import android.util.Log
-import com.dheeraj.smartexpenses.sms.AiSmsExtractorProvider
-import com.dheeraj.smartexpenses.sms.MediaPipeAiSmsExtractor
+import com.dheeraj.smartexpenses.sms.SmsParser
+import com.dheeraj.smartexpenses.sms.SmartContextProvider
 
 class SmartExpensesApp : Application() {
     
@@ -11,25 +11,23 @@ class SmartExpensesApp : Application() {
         super.onCreate()
         
         try {
-            Log.d("SmartExpensesApp", "Initializing AI SMS extractor...")
+            SmartContextProvider.app = this
+            Log.d("SmartExpensesApp", "Initializing multi-task SMS classifier...")
             
-            // Initialize the AI SMS extractor with comprehensive error handling
-            val aiExtractor = MediaPipeAiSmsExtractor(this)
+            // Test model loading directly with step-by-step logging
+            Log.d("SmartExpensesApp", "Step 1: Creating SmsMultiTaskClassifier instance...")
+            val testClassifier = com.dheeraj.smartexpenses.sms.SmsMultiTaskClassifier(this)
+            Log.d("SmartExpensesApp", "Step 2: SmsMultiTaskClassifier created successfully")
             
-            // Test the extractor to ensure it's working
-            val testResult = aiExtractor.testExtraction()
-            Log.d("SmartExpensesApp", "AI extractor test result: $testResult")
+            Log.d("SmartExpensesApp", "Step 3: Calling loadModelWithFallback()...")
+            val modelLoaded = testClassifier.loadModelWithFallback()
+            Log.d("SmartExpensesApp", "Step 4: loadModelWithFallback() returned: $modelLoaded")
             
-            AiSmsExtractorProvider.instance = aiExtractor
-            
-            Log.d("SmartExpensesApp", "AI SMS extractor initialized successfully")
-        } catch (e: OutOfMemoryError ) {
-            Log.e("SmartExpensesApp", "Out of memory during AI initialization, falling back to regex-only mode", e)
-            // Clear any partial resources and continue without AI
-            System.gc()
+            SmsParser.init(this)
+            Log.d("SmartExpensesApp", "Multi-task classifier initialized successfully")
         } catch (e: Exception) {
-            Log.e("SmartExpensesApp", "Error initializing AI SMS extractor: ${e.message}", e)
-            // Don't crash the app if AI initialization fails, continue with regex-only mode
+            Log.e("SmartExpensesApp", "Error initializing multi-task classifier: ${e.message}", e)
+            Log.e("SmartExpensesApp", "Stack trace: ${e.stackTrace.take(10).joinToString("\n")}")
         }
     }
 }

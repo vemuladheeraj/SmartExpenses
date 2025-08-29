@@ -2,6 +2,8 @@ package com.dheeraj.smartexpenses.ui
 
 import android.app.Application
 import android.util.Log
+import android.content.Context
+import android.content.SharedPreferences
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dheeraj.smartexpenses.data.AppDb
@@ -31,6 +33,9 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     }
     
     private val dao = AppDb.get(getApplication()).txnDao()
+    private val prefs: SharedPreferences by lazy {
+        getApplication<Application>().getSharedPreferences("smart_expenses_prefs", Context.MODE_PRIVATE)
+    }
     // Background SMS import state for UI
     private val _isImporting = MutableStateFlow(false)
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
@@ -251,10 +256,17 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         val ctx = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Skip if already imported once and DB has entries
+                val alreadyDone = prefs.getBoolean("initial_import_done", false)
+                val existingCount = try { dao.getSmsTransactionCount() } catch (e: Exception) { 0 }
+                if (alreadyDone && existingCount > 0) {
+                    Log.d("HomeVm", "Initial SMS import previously completed; skipping.")
+                    _isImporting.value = false
+                    return@launch
+                }
                 _isImporting.value = true
                 _importProgress.value = 0 to 0
-                // Fast import: regex only
-                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(false)
+                // Fast import
                 Log.d("HomeVm", "Starting SMS import for last $monthsBack months")
                 var importedCount = 0
                 var skippedCount = 0
@@ -298,18 +310,31 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                 Log.d("HomeVm", "SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
                 println("SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
                 _isImporting.value = false
+                // Mark first-run import as completed
+                prefs.edit().putBoolean("initial_import_done", true).apply()
 
-                // Re-enable AI for enrichment phase
-                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(true)
-                // Kick off background enrichment (capped, rate-limited)
-                launch { enrichInBackground(maxItems = 120, delayMsBetween = 300L) }
+                // Background enrichment removed with LLM path
             } catch (e: Exception) {
                 // Log error but don't crash the app
                 Log.e("HomeVm", "Error during SMS import", e)
                 e.printStackTrace()
                 _isImporting.value = false
-                com.dheeraj.smartexpenses.sms.SmsParser.setAiEnabled(true)
             }
+        }
+    }
+
+    /** Wrapper to only import on first run or when DB empty */
+    fun importIfFirstRun(monthsBack: Long = 6) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val alreadyDone = prefs.getBoolean("initial_import_done", false)
+                val existingCount = try { dao.getSmsTransactionCount() } catch (e: Exception) { 0 }
+                if (!alreadyDone || existingCount == 0) {
+                    importRecentSms(monthsBack)
+                } else {
+                    Log.d("HomeVm", "Skipping importIfFirstRun: already done and DB has $existingCount entries")
+                }
+            } catch (_: Exception) { /* ignore */ }
         }
     }
 

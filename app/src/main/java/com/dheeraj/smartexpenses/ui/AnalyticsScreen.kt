@@ -16,14 +16,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dheeraj.smartexpenses.data.Transaction
+import com.dheeraj.smartexpenses.sms.SmsClassifierTest
 import com.dheeraj.smartexpenses.ui.theme.*
 import java.text.NumberFormat
 import java.util.*
 import com.dheeraj.smartexpenses.data.amount
+import android.util.Log
+import java.util.regex.Pattern
+
+// Chart imports temporarily disabled for multi-task model integration
 
 @Composable
 fun AnalyticsScreen(homeVm: HomeVm) {
@@ -36,6 +42,8 @@ fun AnalyticsScreen(homeVm: HomeVm) {
     var showRangeOverview by remember { mutableStateOf(true) }
     var showInsights by remember { mutableStateOf(true) }
     var showCategories by remember { mutableStateOf(true) }
+    var showCharts by remember { mutableStateOf(true) }
+    var showAdvancedAnalytics by remember { mutableStateOf(true) }
 
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
 
@@ -66,6 +74,19 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         }
     }
 
+    val rangeLabel = remember(rangeStart, rangeEnd, selectedMonthIndex) {
+        val cal = Calendar.getInstance()
+        if (selectedMonthIndex != null) {
+            cal.timeInMillis = rangeStart
+            val month = cal.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale.getDefault()) ?: ""
+            val year = cal.get(Calendar.YEAR)
+            "$month $year"
+        } else {
+            val df = java.text.SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+            df.format(Date(rangeStart)) + " - " + df.format(Date(rangeEnd))
+        }
+    }
+
     val rangeTransactions = remember(allTransactions, rangeStart, rangeEnd) {
         allTransactions.filter { it.ts in rangeStart..rangeEnd }
     }
@@ -82,8 +103,49 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         item {
-            Text("Analytics", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Analytics · $rangeLabel", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
             Text("Track your spending patterns", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        // AI Model Test Section
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Text(
+                        text = "🤖 Multi-Task AI Model Test",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Test the new multi-task SMS classifier model",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    val context = LocalContext.current
+                    Button(
+                        onClick = {
+                            // Test the AI model
+                            val testResult = SmsClassifierTest.testClassifier(context)
+                            Log.d("AnalyticsScreen", "AI Model Test Result: $testResult")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.PlayArrow,
+                            contentDescription = "Test AI Model"
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Test Multi-Task AI Model")
+                    }
+                }
+            }
         }
 
         item {
@@ -100,7 +162,7 @@ fun AnalyticsScreen(homeVm: HomeVm) {
                     ) {
                         repeat(6) { idx ->
                             val cal = Calendar.getInstance().apply { add(Calendar.MONTH, -idx) }
-                            val label = cal.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) + " '" + (cal.get(Calendar.YEAR) % 100)
+                            val label = (cal.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) ?: "Unknown") + " '" + (cal.get(Calendar.YEAR) % 100)
                             FilterChip(selected = selectedMonthIndex == idx, onClick = {
                                 if (selectedMonthIndex == idx) selectedMonthIndex = null else selectedMonthIndex = idx
                                 fromDateMillis = null; toDateMillis = null
@@ -116,6 +178,14 @@ fun AnalyticsScreen(homeVm: HomeVm) {
                         AssistChip(onClick = { showRangeOverview = !showRangeOverview }, label = { Text(if (showRangeOverview) "Hide Range" else "Show Range") })
                         AssistChip(onClick = { showInsights = !showInsights }, label = { Text(if (showInsights) "Hide Insights" else "Show Insights") })
                         AssistChip(onClick = { showCategories = !showCategories }, label = { Text(if (showCategories) "Hide Categories" else "Show Categories") })
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        AssistChip(onClick = { showCharts = !showCharts }, label = { Text(if (showCharts) "Hide Charts" else "Show Charts") })
+                        AssistChip(onClick = { showAdvancedAnalytics = !showAdvancedAnalytics }, label = { Text(if (showAdvancedAnalytics) "Hide Advanced" else "Show Advanced") })
                     }
                 }
             }
@@ -141,32 +211,64 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         }
 
         if (showRangeOverview) {
-            item { MonthlyOverviewCard(totalCredit = totalCredit, totalDebit = totalDebit, balance = balance, currencyFormat = currencyFormat) }
+            item { MonthlyOverviewCard(titleSuffix = rangeLabel, totalCredit = totalCredit, totalDebit = totalDebit, balance = balance, currencyFormat = currencyFormat) }
+            item { EnhancedOverviewCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
         if (showInsights) {
-            item { SpendingInsightsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { SpendingInsightsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
         if (showCategories) {
-            item { CategoryBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { CategoryBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
 
-        item { RecentTrendsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { TransactionTypeBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { ChannelBreakdownCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { TopMerchantsCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
-        item { BiggestExpensesCard(transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TransactionTypeBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { ChannelBreakdownCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { TopMerchantsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        item { BiggestExpensesCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        
+        // Chart components temporarily disabled for multi-task model integration
+        if (showCharts) {
+            item { 
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Text(
+                            "📊 Charts & Analytics · $rangeLabel",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Advanced chart functionality is being integrated with the new multi-task AI model. Coming soon!",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            item { RecentTrendsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        }
+        
+        if (showAdvancedAnalytics) {
+            item { SavingsGoalCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+            item { SpendingPatternsCard(titleSuffix = rangeLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
+        }
     }
 }
 
 @Composable
 fun TopMerchantsCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
     val debitTransactions = transactions.filter { it.type == "DEBIT" }
-    val totals = debitTransactions.groupBy { (it.merchant ?: it.channel ?: "Unknown").trim() }
+    val totals = debitTransactions.groupBy { ((it.merchant ?: extractCounterpartyName(it.rawBody)) ?: "Unknown").trim() }
         .mapValues { it.value.sumOf { t -> t.amount } }
         .toList()
         .sortedByDescending { it.second }
@@ -177,7 +279,7 @@ fun TopMerchantsCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Top Merchants", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Top Merchants" + (titleSuffix?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             totals.take(10).forEach { (name, amount) ->
                 Row(
@@ -196,6 +298,7 @@ fun TopMerchantsCard(
 
 @Composable
 fun BiggestExpensesCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -209,14 +312,14 @@ fun BiggestExpensesCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(Modifier.padding(20.dp)) {
-            Text("Biggest Expenses", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Biggest Expenses" + (titleSuffix?.let { " · $it" } ?: ""), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             biggest.forEach { t ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text((t.merchant ?: t.channel ?: "Transaction"), style = MaterialTheme.typography.bodyMedium)
+                    Text((t.merchant ?: extractCounterpartyName(t.rawBody) ?: "Transaction"), style = MaterialTheme.typography.bodyMedium)
                     Text(currencyFormat.format(t.amount), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = ErrorRed)
                 }
                 Spacer(Modifier.height(6.dp))
@@ -228,6 +331,7 @@ fun BiggestExpensesCard(
 
 @Composable
 fun MonthlyOverviewCard(
+    titleSuffix: String? = null,
     totalCredit: Double,
     totalDebit: Double,
     balance: Double,
@@ -242,7 +346,7 @@ fun MonthlyOverviewCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Monthly Overview",
+                "Monthly Overview" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -303,6 +407,7 @@ fun OverviewItem(
 
 @Composable
 fun SpendingInsightsCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -323,7 +428,7 @@ fun SpendingInsightsCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Spending Insights",
+                "Spending Insights" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -402,6 +507,7 @@ fun InsightItem(
 
 @Composable
 fun CategoryBreakdownCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -409,7 +515,7 @@ fun CategoryBreakdownCard(
     val categoryMap = mutableMapOf<String, Double>()
     
     debitTransactions.forEach { transaction ->
-        val category = getCategoryFromMerchant(transaction.merchant ?: transaction.channel ?: "")
+        val category = getCategoryFromMerchant((transaction.merchant ?: extractCounterpartyName(transaction.rawBody) ?: ""))
         categoryMap[category] = categoryMap.getOrDefault(category, 0.0) + transaction.amount
     }
     
@@ -424,7 +530,7 @@ fun CategoryBreakdownCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Category Breakdown",
+                "Category Breakdown" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -440,6 +546,25 @@ fun CategoryBreakdownCard(
                     modifier = Modifier.fillMaxWidth()
                 )
             } else {
+                // Chart temporarily disabled - Vico library integration in progress
+                if (sortedCategories.size > 1) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Text(
+                            "📊 Category Distribution Chart",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                
+                // Category list with enhanced styling
                 sortedCategories.take(5).forEach { (category, amount) ->
                     CategoryItem(
                         category = category,
@@ -448,6 +573,27 @@ fun CategoryBreakdownCard(
                         currencyFormat = currencyFormat
                     )
                     Spacer(modifier = Modifier.height(8.dp))
+                }
+                
+                // Show total spending
+                if (sortedCategories.isNotEmpty()) {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Total Spending",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            currencyFormat.format(categoryMap.values.sum()),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ErrorRed
+                        )
+                    }
                 }
             }
         }
@@ -512,6 +658,7 @@ fun CategoryItem(
 
 @Composable
 fun RecentTrendsCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -524,6 +671,13 @@ fun RecentTrendsCard(
             calendar.get(Calendar.DAY_OF_MONTH)
         }
         .mapValues { it.value.sumOf { transaction -> transaction.amount } }
+        .toList()
+        .sortedBy { it.first }
+
+    val chartEntries = dailySpending.mapIndexed { index, (day, amount) ->
+        // Chart data temporarily disabled
+        index.toFloat() to amount.toFloat()
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -534,14 +688,80 @@ fun RecentTrendsCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Recent Trends",
+                "Recent Spending Trends" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
             
             Spacer(modifier = Modifier.height(16.dp))
             
-            if (dailySpending.isEmpty()) {
+            if (chartEntries.isNotEmpty()) {
+                // Chart temporarily disabled - Vico library integration in progress
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "📈 Daily Spending Trend Chart\n(Coming Soon with Multi-Task AI)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Summary stats
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = dailySpending.size.toString(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = PrimaryBlue
+                        )
+                        Text(
+                            text = "Days Tracked",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = currencyFormat.format(dailySpending.sumOf { it.second }),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = ErrorRed
+                        )
+                        Text(
+                            text = "Total Spent",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val avg = if (dailySpending.isNotEmpty()) dailySpending.sumOf { it.second } / dailySpending.size else 0.0
+                        Text(
+                            text = currencyFormat.format(avg),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = WarningOrange
+                        )
+                        Text(
+                            text = "Daily Avg",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
                 Text(
                     "No recent spending data",
                     style = MaterialTheme.typography.bodyMedium,
@@ -549,26 +769,6 @@ fun RecentTrendsCard(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth()
                 )
-            } else {
-                dailySpending.entries.sortedBy { it.key }.forEach { (day, amount) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Day $day",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = currencyFormat.format(amount),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = ErrorRed
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
             }
         }
     }
@@ -626,6 +826,7 @@ fun SixMonthOverviewCard(
 
 @Composable
 fun TransactionTypeBreakdownCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -646,7 +847,7 @@ fun TransactionTypeBreakdownCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Transaction Type Breakdown",
+                "Transaction Type Breakdown" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -720,6 +921,7 @@ fun TransactionTypeBreakdownCard(
 
 @Composable
 fun ChannelBreakdownCard(
+    titleSuffix: String? = null,
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
@@ -743,7 +945,7 @@ fun ChannelBreakdownCard(
             modifier = Modifier.padding(20.dp)
         ) {
             Text(
-                "Payment Channel Breakdown",
+                "Payment Channel Breakdown" + (titleSuffix?.let { " · $it" } ?: ""),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -810,6 +1012,520 @@ private fun isInterAccountTransfer(transaction: Transaction): Boolean {
             (body.contains("account") || body.contains("a/c")))
 }
 
+// ===== NEW ENHANCED CHART COMPONENTS =====
+
+@Composable
+fun SpendingTrendChart(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    val dailySpending = debitTransactions
+        .groupBy { 
+            val calendar = Calendar.getInstance()
+            calendar.timeInMillis = it.ts
+            calendar.get(Calendar.DAY_OF_MONTH)
+        }
+        .mapValues { it.value.sumOf { transaction -> transaction.amount } }
+        .toList()
+        .sortedBy { it.first }
+
+    val chartEntries = dailySpending.mapIndexed { index, (day, amount) ->
+        // Chart data temporarily disabled
+        index.toFloat() to amount.toFloat()
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Daily Spending Trend",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            if (chartEntries.isNotEmpty()) {
+                // Chart temporarily disabled - Vico library integration in progress
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "📈 Daily Spending Trend Chart\n(Coming Soon with Multi-Task AI)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            } else {
+                Text(
+                    "No spending data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CategoryPieChart(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    val categoryMap = mutableMapOf<String, Double>()
+    
+    debitTransactions.forEach { transaction ->
+        val category = getCategoryFromMerchant(transaction.merchant ?: transaction.channel ?: "")
+        categoryMap[category] = categoryMap.getOrDefault(category, 0.0) + transaction.amount
+    }
+    
+    val sortedCategories = categoryMap.toList().sortedByDescending { it.second }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Spending by Category",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            if (sortedCategories.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Pie Chart
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(200.dp)
+                    ) {
+                        // Chart temporarily disabled - Vico library integration in progress
+                        Text(
+                            "📊 Category Pie Chart\n(Coming Soon with Multi-Task AI)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    
+                    // Category Legend
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp)
+                    ) {
+                        sortedCategories.take(6).forEach { (category, amount) ->
+                            val percentage = if (categoryMap.values.sum() > 0) {
+                                (amount / categoryMap.values.sum()) * 100
+                            } else 0.0
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(getCategoryColor(category))
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = category,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "${"%.1f".format(percentage)}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = getCategoryColor(category)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(
+                    "No category data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MonthlyComparisonChart(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val monthlyData = mutableMapOf<String, Pair<Double, Double>>() // month -> (credit, debit)
+    
+    transactions.forEach { transaction ->
+        val calendar = Calendar.getInstance()
+        calendar.timeInMillis = transaction.ts
+        val monthKey = "${calendar.getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) ?: "Unknown"} '${calendar.get(Calendar.YEAR) % 100}"
+        
+        val current = monthlyData.getOrDefault(monthKey, 0.0 to 0.0)
+        if (transaction.type == "CREDIT") {
+            monthlyData[monthKey] = current.first + transaction.amount to current.second
+        } else if (transaction.type == "DEBIT") {
+            monthlyData[monthKey] = current.first to current.second + transaction.amount
+        }
+    }
+    
+    val sortedMonths = monthlyData.toList().sortedBy { (month, _) ->
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = transactions.firstOrNull()?.ts ?: 0L
+        // Sort by actual month order
+        month
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Monthly Income vs Expenses",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            if (sortedMonths.isNotEmpty()) {
+                // Chart temporarily disabled - Vico library integration in progress
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(250.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "📊 Monthly Income vs Expenses Chart\n(Coming Soon with Multi-Task AI)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(SuccessGreen)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Income", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(12.dp)
+                                .clip(CircleShape)
+                                .background(ErrorRed)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Expenses", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            } else {
+                Text(
+                    "No monthly data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun DailySpendingChart(
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    val weeklySpending = mutableMapOf<String, Double>()
+    
+    // Group by day of week
+    debitTransactions.forEach { transaction ->
+        val calendar = Calendar.getInstance()
+        calendar.timeInMillis = transaction.ts
+        val dayOfWeek = calendar.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, Locale.getDefault()) ?: "Unknown"
+        weeklySpending[dayOfWeek] = weeklySpending.getOrDefault(dayOfWeek, 0.0) + transaction.amount
+    }
+    
+    val daysOfWeek = listOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+    val chartEntries = daysOfWeek.mapIndexed { index, day ->
+        // Chart data temporarily disabled
+        index.toFloat() to weeklySpending.getOrDefault(day, 0.0).toFloat()
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Weekly Spending Pattern",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            if (chartEntries.any { it.second > 0 }) {
+                // Chart temporarily disabled - Vico library integration in progress
+                Text(
+                    "Chart: Weekly spending pattern",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            } else {
+                Text(
+                    "No weekly spending data available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SavingsGoalCard(
+    titleSuffix: String? = null,
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val totalIncome = transactions.filter { it.type == "CREDIT" }.sumOf { it.amount }
+    val totalExpenses = transactions.filter { it.type == "DEBIT" }.sumOf { it.amount }
+    val savings = totalIncome - totalExpenses
+    val savingsRate = if (totalIncome > 0) (savings / totalIncome) * 100 else 0.0
+    
+    val goalAmount = totalIncome * 0.2 // 20% savings goal
+    val progress = if (goalAmount > 0) (savings / goalAmount) * 100 else 0.0
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Savings & Goals" + (titleSuffix?.let { " · $it" } ?: ""),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        "Total Savings",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        currencyFormat.format(savings),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (savings >= 0) SuccessGreen else ErrorRed
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "Savings Rate",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "${"%.1f".format(savingsRate)}%",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (savingsRate >= 20) SuccessGreen else WarningOrange
+                    )
+                }
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            Text(
+                "20% Savings Goal Progress",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = if (progress >= 100) SuccessGreen else AccentPurple,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+            
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "${"%.1f".format(progress)}% of goal achieved",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun SpendingPatternsCard(
+    titleSuffix: String? = null,
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    
+    // Time-based patterns
+    val hourlySpending = mutableMapOf<Int, Double>()
+    val monthlySpending = mutableMapOf<Int, Double>()
+    
+    debitTransactions.forEach { transaction ->
+        val calendar = Calendar.getInstance()
+        calendar.timeInMillis = transaction.ts
+        
+        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+        val month = calendar.get(Calendar.MONTH)
+        
+        hourlySpending[hour] = hourlySpending.getOrDefault(hour, 0.0) + transaction.amount
+        monthlySpending[month] = monthlySpending.getOrDefault(month, 0.0) + transaction.amount
+    }
+    
+    val peakHour = hourlySpending.maxByOrNull { it.value }?.key ?: 0
+    val peakMonth = monthlySpending.maxByOrNull { it.value }?.key ?: 0
+    val avgTransactionSize = if (debitTransactions.isNotEmpty()) {
+        debitTransactions.sumOf { it.amount } / debitTransactions.size
+    } else 0.0
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Spending Patterns & Insights" + (titleSuffix?.let { " · $it" } ?: ""),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(16.dp))
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.Schedule,
+                        contentDescription = "Peak Hour",
+                        tint = WarningOrange,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "${peakHour}:00",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Peak Hour",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.CalendarMonth,
+                        contentDescription = "Peak Month",
+                        tint = AccentPurple,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = Calendar.getInstance().apply { set(Calendar.MONTH, peakMonth) }
+                            .getDisplayName(Calendar.MONTH, Calendar.SHORT, Locale.getDefault()) ?: "Unknown",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Peak Month",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        imageVector = Icons.Outlined.Analytics,
+                        contentDescription = "Avg Transaction",
+                        tint = PrimaryBlue,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = currencyFormat.format(avgTransactionSize),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Avg Transaction",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun getCategoryFromMerchant(merchant: String): String {
     return when {
@@ -848,3 +1564,198 @@ fun getCategoryFromMerchant(merchant: String): String {
         else -> "Other"
     }
 }
+
+// Lightweight extraction similar to HomeScreen display logic to avoid channel names
+private fun extractCounterpartyName(body: String?): String? {
+    if (body == null) return null
+    val patterns = listOf(
+        Regex("(?i)(?:to|paid to|transfer to)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        Regex("(?i)(?:from|received from)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        Regex("(?i)(?:by)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        Regex("(?i)(?:at)\\s+([A-Za-z0-9 &._-]{3,40})")
+    )
+    val bankKeywords = listOf(
+        "bank", "sbi", "icici", "hdfc", "axis", "kotak", "pnb", "boi", "canara",
+        "union bank", "yes bank", "idfc", "idbi", "federal", "rbl", "indusind",
+        "citibank", "citi", "hsbc", "standard chartered", "scb", "au small finance",
+        "paytm payments bank", "airtel payments bank"
+    )
+    for (r in patterns) {
+        val m = r.find(body)
+        if (m != null) {
+            var name = m.groupValues.getOrNull(1)?.trim()
+            if (!name.isNullOrBlank()) {
+                name = name
+                    ?.replace(Regex("(?i)\\b(a/c|acct|account|no\\.?|number)\\b.*$"), "")
+                    ?.replace(Regex("\\s+"), " ")
+                    ?.trim()
+                val lower = name!!.lowercase()
+                val isBank = bankKeywords.any { lower.contains(it) }
+                if (!isBank && name.length >= 3) return name
+            }
+        }
+    }
+    return null
+}
+
+@Composable
+fun EnhancedOverviewCard(
+    titleSuffix: String? = null,
+    transactions: List<Transaction>,
+    currencyFormat: NumberFormat
+) {
+    val creditTransactions = transactions.filter { it.type == "CREDIT" }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    
+    val totalCredit = creditTransactions.sumOf { it.amount }
+    val totalDebit = debitTransactions.sumOf { it.amount }
+    val balance = totalCredit - totalDebit
+    
+    val avgCredit = if (creditTransactions.isNotEmpty()) totalCredit / creditTransactions.size else 0.0
+    val avgDebit = if (debitTransactions.isNotEmpty()) totalDebit / debitTransactions.size else 0.0
+    
+    val creditCount = creditTransactions.size
+    val debitCount = debitTransactions.size
+    val totalTransactions = transactions.size
+    
+    val netWorthChange = balance
+    val spendingEfficiency = if (totalCredit > 0) ((totalCredit - totalDebit) / totalCredit) * 100 else 0.0
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text(
+                "Financial Health Overview" + (titleSuffix?.let { " · $it" } ?: ""),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(Modifier.height(16.dp))
+            
+            // Key metrics in a grid
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = currencyFormat.format(netWorthChange),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (netWorthChange >= 0) SuccessGreen else ErrorRed
+                    )
+                    Text(
+                        text = "Net Change",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${"%.1f".format(spendingEfficiency)}%",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = if (spendingEfficiency >= 20) SuccessGreen else WarningOrange
+                    )
+                    Text(
+                        text = "Savings Rate",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = totalTransactions.toString(),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = PrimaryBlue
+                    )
+                    Text(
+                        text = "Total Txns",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            // Detailed breakdown
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        "Income Details",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = SuccessGreen
+                    )
+                    Text(
+                        currencyFormat.format(totalCredit),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "$creditCount transactions • Avg: ${currencyFormat.format(avgCredit)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        "Expense Details",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ErrorRed
+                    )
+                    Text(
+                        currencyFormat.format(totalDebit),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "$debitCount transactions • Avg: ${currencyFormat.format(avgDebit)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Spacer(Modifier.height(16.dp))
+            
+            // Progress indicators
+            Column {
+                Text(
+                    "Income vs Expenses Ratio",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(8.dp))
+                
+                val ratio = if (totalDebit > 0) totalCredit / totalDebit else 0.0
+                
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = if (ratio >= 1.2) SuccessGreen else if (ratio >= 1.0) WarningOrange else ErrorRed,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+                
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${"%.2f".format(ratio)}x (${"%.1f".format(ratio * 100)}% of expenses covered by income)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+

@@ -1,5 +1,7 @@
 package com.dheeraj.smartexpenses.sms
 
+// LLM download flow removed; importer unchanged.
+
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager

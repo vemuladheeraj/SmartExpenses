@@ -27,8 +27,8 @@ class MainActivity : ComponentActivity() {
                 (granted[Manifest.permission.RECEIVE_SMS] == true)
         if (ok) {
             try {
-                Log.d("MainActivity", "Starting SMS import...")
-                vm.importRecentSms()
+                Log.d("MainActivity", "Permissions granted; triggering importIfFirstRun()")
+                vm.importIfFirstRun()
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error during SMS import", e)
                 e.printStackTrace()

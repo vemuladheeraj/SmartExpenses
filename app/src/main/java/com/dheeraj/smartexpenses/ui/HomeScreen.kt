@@ -336,8 +336,12 @@ fun ModernTransactionCard(transaction: Transaction) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     
-    val categoryIcon = getCategoryIcon(transaction.merchant ?: transaction.channel ?: "")
-    val categoryColor = getCategoryColor(transaction.merchant ?: transaction.channel ?: "")
+    val displayName = transaction.merchant
+        ?: extractCounterpartyForDisplay(transaction.rawBody)
+        ?: transaction.channel
+        ?: "Transaction"
+    val categoryIcon = getCategoryIcon(displayName)
+    val categoryColor = getCategoryColor(displayName)
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -376,7 +380,7 @@ fun ModernTransactionCard(transaction: Transaction) {
                 modifier = Modifier.weight(1f)
             ) {
                 Text(
-                    text = transaction.merchant ?: transaction.channel ?: "Transaction",
+                    text = displayName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -442,6 +446,45 @@ fun ModernTransactionCard(transaction: Transaction) {
             }
         }
     }
+}
+
+// Prefer person/merchant-like name from SMS body for display if merchant is null
+private fun extractCounterpartyForDisplay(body: String?): String? {
+    if (body == null) return null
+    val regexes = listOf(
+        // to <Name> ...
+        Regex("(?i)(?:to|paid to|transfer to)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        // from <Name> ... (credits)
+        Regex("(?i)(?:from|received from)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        // by <Name> ... (e.g., credited by <Name>)
+        Regex("(?i)(?:by)\\s+([A-Za-z0-9 &._-]{3,40})"),
+        // at <Name> ... (POS)
+        Regex("(?i)(?:at)\\s+([A-Za-z0-9 &._-]{3,40})")
+    )
+    val bankKeywords = listOf(
+        "bank", "sbi", "icici", "hdfc", "axis", "kotak", "pnb", "boi", "canara",
+        "union bank", "yes bank", "idfc", "idbi", "federal", "rbl", "indusind",
+        "citibank", "citi", "hsbc", "standard chartered", "scb", "au small finance",
+        "paytm payments bank", "airtel payments bank"
+    )
+    for (r in regexes) {
+        val m = r.find(body)
+        if (m != null) {
+            var name = m.groupValues.getOrNull(1)?.trim()
+            if (!name.isNullOrBlank()) {
+                // Clean common trailing tokens
+                name = name
+                    ?.replace(Regex("(?i)\\b(a/c|acct|account|no\\.?|number)\\b.*$"), "")
+                    ?.replace(Regex("\\s+"), " ")
+                    ?.trim()
+                // Skip obvious bank names
+                val lower = name!!.lowercase()
+                val isBank = bankKeywords.any { lower.contains(it) }
+                if (!isBank && name.length >= 3) return name
+            }
+        }
+    }
+    return null
 }
 
 @Composable

@@ -36,6 +36,11 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     buildFeatures { compose = true }
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
     
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
@@ -69,6 +74,11 @@ dependencies {
     // Extended Icons
     implementation("androidx.compose.material:material-icons-extended:1.6.3")
     
+    // Vico charts for analytics
+    implementation("com.patrykandpatrick.vico:compose:1.13.1")
+    implementation("com.patrykandpatrick.vico:compose-m3:1.13.1")
+    implementation("com.patrykandpatrick.vico:core:1.13.1")
+    
     // Coil for image loading
     implementation("io.coil-kt:coil-compose:2.5.0")
 
@@ -81,8 +91,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
-    // ---- MediaPipe for LLM inference ----
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    // ML Kit Entity Extraction will be added with correct coords in a follow-up
 
     // ---- tests ----
     testImplementation("junit:junit:4.13.2")
@@ -92,7 +101,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
-    // ---- Tiny on-device inference (optional) ----
-    // Using base runtime only to keep size small; replace or add Task APIs if needed
+    // ---- TensorFlow Lite (pure) ----
     implementation("org.tensorflow:tensorflow-lite:2.12.0")
+    
+    // TensorFlow Lite Support for multi-task model
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.2")
+    implementation("org.tensorflow:tensorflow-lite-metadata:0.4.2")
 }
