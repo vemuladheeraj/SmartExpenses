@@ -6,10 +6,10 @@ import java.math.BigDecimal
 import java.util.Locale
 
 object SmsParser {
-    private lateinit var classifier: SmsMultiTaskClassifier
+    private lateinit var classifier: SmsClassifier
     
     fun init(context: android.content.Context) { 
-        classifier = SmsMultiTaskClassifier(context)
+        classifier = SmsClassifier(context)
         // Try to load the model with fallback options
         if (!classifier.loadModelWithFallback()) {
             Log.w("SmsParser", "All AI models failed to load, will use regex-based parsing")

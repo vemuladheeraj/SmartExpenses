@@ -1,7 +1,6 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
-    // ✅ use kapt instead of ksp (simplest + stable)
     id("org.jetbrains.kotlin.kapt")
 }
 
@@ -28,7 +27,7 @@ android {
         }
     }
 
-    // AGP 8.x prefers Java 17
+    // Java/Kotlin toolchain
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -36,26 +35,27 @@ android {
     kotlinOptions { jvmTarget = "17" }
 
     buildFeatures { compose = true }
+
     packaging {
+        jniLibs { useLegacyPackaging = true }
         resources {
+            // keep common excludes; no 'noCompress' needed (we load via InputStream)
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
-    
+
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
     }
-    
-    // Room schema export
+
+    // Room schema export (kapt)
     kapt {
-        arguments {
-            arg("room.schemaLocation", "$projectDir/schemas")
-        }
+        arguments { arg("room.schemaLocation", "$projectDir/schemas") }
     }
 }
 
 dependencies {
-    // ---- Compose + basics ----
+    // ---- Compose BOM ----
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -67,44 +67,37 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3:1.3.0")
-    
-    // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.7")
-    
-    // Extended Icons
     implementation("androidx.compose.material:material-icons-extended:1.6.3")
-    
-    // Vico charts for analytics
+
+    // Charts
     implementation("com.patrykandpatrick.vico:compose:1.13.1")
     implementation("com.patrykandpatrick.vico:compose-m3:1.13.1")
     implementation("com.patrykandpatrick.vico:core:1.13.1")
-    
-    // Coil for image loading
+
+    // Coil
     implementation("io.coil-kt:coil-compose:2.5.0")
 
-    // ---- Needed for our app ----
+    // Coroutines / lifecycle
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
 
-    // ---- Room + kapt (NO ksp anywhere) ----
+    // Room
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
     kapt("androidx.room:room-compiler:2.6.1")
 
-    // ML Kit Entity Extraction will be added with correct coords in a follow-up
+    // ---- LiteRT (Google AI Edge) ----
+    implementation("com.google.ai.edge.litert:litert:1.4.0")
+    // Optional helpers; include only if you use them in code
+    implementation("com.google.ai.edge.litert:litert-support:1.4.0")
+    implementation("com.google.ai.edge.litert:litert-metadata:1.4.0")
 
-    // ---- tests ----
+    // ---- Tests ----
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-
-    // ---- TensorFlow Lite (pure) ----
-    implementation("org.tensorflow:tensorflow-lite:2.12.0")
-    
-    // TensorFlow Lite Support for multi-task model
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.2")
-    implementation("org.tensorflow:tensorflow-lite-metadata:0.4.2")
 }

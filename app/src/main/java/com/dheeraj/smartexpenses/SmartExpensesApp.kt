@@ -15,9 +15,9 @@ class SmartExpensesApp : Application() {
             Log.d("SmartExpensesApp", "Initializing multi-task SMS classifier...")
             
             // Test model loading directly with step-by-step logging
-            Log.d("SmartExpensesApp", "Step 1: Creating SmsMultiTaskClassifier instance...")
-            val testClassifier = com.dheeraj.smartexpenses.sms.SmsMultiTaskClassifier(this)
-            Log.d("SmartExpensesApp", "Step 2: SmsMultiTaskClassifier created successfully")
+                    Log.d("SmartExpensesApp", "Step 1: Creating SmsClassifier instance...")
+        val testClassifier = com.dheeraj.smartexpenses.sms.SmsClassifier(this)
+        Log.d("SmartExpensesApp", "Step 2: SmsClassifier created successfully")
             
             Log.d("SmartExpensesApp", "Step 3: Calling loadModelWithFallback()...")
             val modelLoaded = testClassifier.loadModelWithFallback()

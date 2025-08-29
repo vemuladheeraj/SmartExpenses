@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 
 /**
- * Test utility for the multi-task SMS classifier
+ * Test utility for the single-task SMS classifier
  */
 object SmsClassifierTest {
     private const val TAG = "SmsClassifierTest"
@@ -13,7 +13,7 @@ object SmsClassifierTest {
      * Test the classifier with sample SMS messages
      */
     fun testClassifier(context: Context): String {
-        val classifier = SmsMultiTaskClassifier(context)
+        val classifier = SmsClassifier(context)
         
         if (!classifier.loadModel("transaction_model.tflite")) {
             return "❌ Failed to load transaction model"
@@ -28,7 +28,7 @@ object SmsClassifierTest {
         )
         
         val results = StringBuilder()
-        results.append("🧪 Multi-Task SMS Classifier Test Results\n")
+        results.append("🧪 Single-Task SMS Classifier Test Results\n")
         results.append("=====================================\n\n")
         
         testCases.forEachIndexed { index, sms ->
@@ -61,7 +61,7 @@ object SmsClassifierTest {
      * Test specific SMS analysis
      */
     fun testSpecificSms(context: Context, smsText: String): String {
-        val classifier = SmsMultiTaskClassifier(context)
+        val classifier = SmsClassifier(context)
         
         if (!classifier.loadModel("transaction_model.tflite")) {
             return "❌ Failed to load transaction model"
