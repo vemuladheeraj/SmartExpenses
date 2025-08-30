@@ -9,12 +9,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.dheeraj.smartexpenses.ui.AddManualTxnSheet
 import com.dheeraj.smartexpenses.ui.MainNavigation
 import com.dheeraj.smartexpenses.ui.HomeVm
 import com.dheeraj.smartexpenses.ui.theme.SmartExpensesTheme
-import com.dheeraj.smartexpenses.sms.ModelDownloadDialog
-import com.dheeraj.smartexpenses.sms.ModelDownloadHelper
+import com.dheeraj.smartexpenses.data.AppDb
 
 class MainActivity : ComponentActivity() {
 
@@ -42,9 +44,15 @@ class MainActivity : ComponentActivity() {
         try {
             Log.d("MainActivity", "onCreate started")
             
-            // Don't request SMS permissions immediately - wait for AI model download to complete
-            // The permissions will be requested after the download dialog is dismissed
-
+            // Force fresh install for development - ensures clean database
+            AppDb.forceFreshInstall(this)
+            
+            // Ensure default data is populated on first install
+            CoroutineScope(Dispatchers.IO).launch {
+                AppDb.ensureDefaultData(this@MainActivity)
+            }
+            
+            // Model is available locally in assets, so we can proceed normally
             Log.d("MainActivity", "Setting content...")
             setContent { App(vm, requestPerms) }
             
@@ -64,41 +72,14 @@ fun App(
     val context = LocalContext.current
     
     var showManual by remember { mutableStateOf(false) }
-    var showDownloadDialog by remember { 
-        mutableStateOf(ModelDownloadHelper.shouldShowDownloadDialog(context))
-    }
     
-    // Check if AI model download dialog should be shown - make it reactive
-    val shouldShowDownloadDialog = remember {
-        mutableStateOf(ModelDownloadHelper.shouldShowDownloadDialog(context))
-    }
-    
-    // Update the state when context changes and also when the dialog is dismissed
+    // Since we have the model locally in assets, request SMS permissions immediately
     LaunchedEffect(context) {
-        val shouldShow = ModelDownloadHelper.shouldShowDownloadDialog(context)
-        android.util.Log.d("MainActivity", "Initial download state check: shouldShow=$shouldShow")
-        shouldShowDownloadDialog.value = shouldShow
-        showDownloadDialog = shouldShow
-    }
-    
-    // If model is already downloaded, proceed to SMS permissions
-    LaunchedEffect(shouldShowDownloadDialog.value) {
-        if (!shouldShowDownloadDialog.value) {
-            android.util.Log.d("MainActivity", "Model already downloaded, proceeding to SMS permissions")
-            // Model is already downloaded, request SMS permissions
-            requestPerms.launch(arrayOf(
-                Manifest.permission.READ_SMS,
-                Manifest.permission.RECEIVE_SMS
-            ))
-        }
-    }
-    
-    // Function to update download state
-    fun updateDownloadState() {
-        val shouldShow = ModelDownloadHelper.shouldShowDownloadDialog(context)
-        android.util.Log.d("MainActivity", "updateDownloadState: shouldShow=$shouldShow")
-        shouldShowDownloadDialog.value = shouldShow
-        showDownloadDialog = shouldShow
+        android.util.Log.d("MainActivity", "Model available locally, requesting SMS permissions")
+        requestPerms.launch(arrayOf(
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_SMS
+        ))
     }
 
     SmartExpensesTheme {
@@ -107,25 +88,12 @@ fun App(
             onAddTransaction = { showManual = true }
         )
 
-        // Show AI model download dialog if needed
-        if (shouldShowDownloadDialog.value && showDownloadDialog) {
-            ModelDownloadDialog(
-                onDismiss = {
-                    showDownloadDialog = false
-                    updateDownloadState() // Update the download state
-                    // After download dialog is dismissed, request SMS permissions
-                    requestPerms.launch(arrayOf(
-                        Manifest.permission.READ_SMS,
-                        Manifest.permission.RECEIVE_SMS
-                    ))
-                }
-            )
-        }
+
 
         if (showManual) {
             AddManualTxnSheet(
-                onSave = { amount, type, merchant, channel ->
-                    vm.addManual(amount, type, merchant, channel)
+                onSave = { amount, type, merchant, channel, category ->
+                    vm.addManual(amount, type, merchant, channel, category)
                     showManual = false
                 },
                 onDismiss = { showManual = false }

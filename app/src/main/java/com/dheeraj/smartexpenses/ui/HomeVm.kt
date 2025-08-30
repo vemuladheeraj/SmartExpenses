@@ -10,6 +10,8 @@ import com.dheeraj.smartexpenses.data.AppDb
 import com.dheeraj.smartexpenses.data.Transaction
 import com.dheeraj.smartexpenses.sms.SmsImporter
 import com.dheeraj.smartexpenses.sms.SmsParser
+import com.dheeraj.smartexpenses.utils.DataDebugger
+import com.dheeraj.smartexpenses.security.SecurePreferences
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -26,6 +28,11 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
             Log.d("HomeVm", "Initializing HomeViewModel...")
             AppDb.get(getApplication()).txnDao()
             Log.d("HomeVm", "Database initialized successfully")
+            
+            // Check AI insights configuration
+            viewModelScope.launch {
+                checkAiInsightsConfiguration()
+            }
         } catch (e: Exception) {
             Log.e("HomeVm", "Error initializing database", e)
             e.printStackTrace()
@@ -41,6 +48,22 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     val isImporting: StateFlow<Boolean> = _isImporting.asStateFlow()
     private val _importProgress = MutableStateFlow(0 to 0)
     val importProgress: StateFlow<Pair<Int, Int>> = _importProgress.asStateFlow()
+    
+    // Additional state properties for reset functionality
+    private val _isProcessing = MutableStateFlow(false)
+    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+    private val _processingStats = MutableStateFlow(SmsProcessingStats())
+    val processingStats: StateFlow<SmsProcessingStats> = _processingStats.asStateFlow()
+    private val _lastImportTime = MutableStateFlow<Long?>(null)
+    val lastImportTime: StateFlow<Long?> = _lastImportTime.asStateFlow()
+    private val _lastProcessingTime = MutableStateFlow<Long?>(null)
+    val lastProcessingTime: StateFlow<Long?> = _lastProcessingTime.asStateFlow()
+    private val _errorMessage = MutableStateFlow<String?>(null)
+    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+    private val _successMessage = MutableStateFlow<String?>(null)
+    val successMessage: StateFlow<String?> = _successMessage.asStateFlow()
+    private val _hasAiInsightsConfigured = MutableStateFlow(false)
+    val hasAiInsightsConfigured: StateFlow<Boolean> = _hasAiInsightsConfigured.asStateFlow()
 
     enum class RangeMode { CALENDAR_MONTH, ROLLING_MONTH }
 
@@ -229,7 +252,7 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     }
 
     /** Manual add */
-    fun addManual(amount: Double, type: String, merchant: String?, channel: String?, whenTs: Long = System.currentTimeMillis()) {
+    fun addManual(amount: Double, type: String, merchant: String?, channel: String?, category: String? = null, whenTs: Long = System.currentTimeMillis()) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val t = Transaction(
@@ -238,6 +261,7 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                     type = type.uppercase(Locale.getDefault()),
                     channel = channel,
                     merchant = merchant,
+                    category = category,
                     accountTail = null,
                     bank = null,
                     source = "MANUAL",
@@ -287,10 +311,24 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                             // Check if this SMS already exists
                             val exists = dao.exists(sender, body, ts)
                             if (exists == 0) {
-                                SmsParser.parse(sender, body, ts)?.let { transaction ->
+                                // Enhanced SMS parsing with detailed logging
+                                val transaction = SmsParser.parse(sender, body, ts)
+                                if (transaction != null) {
+                                    // Log transaction details for debugging
+                                    val transactionType = when (transaction.type) {
+                                        "TRANSFER" -> "TRANSFER (Internal)"
+                                        "CREDIT" -> "CREDIT (Income)"
+                                        "DEBIT" -> "DEBIT (Expense)"
+                                        else -> transaction.type
+                                    }
+                                    
+                                    Log.d("HomeVm", "Imported $transactionType: ${transaction.merchant ?: "Unknown"} - ₹${transaction.amountMinor / 100} from ${transaction.bank}")
+                                    
                                     dao.insert(transaction)
                                     importedCount++
-                                    Log.d("HomeVm", "Imported transaction: ${transaction.merchant} - ₹${transaction.amountMinor / 100}")
+                                } else {
+                                    // Log why SMS was rejected
+                                    Log.d("HomeVm", "SMS parsing failed for $sender: ${body.take(50)}...")
                                 }
                             } else {
                                 skippedCount++
@@ -327,14 +365,32 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
     fun importIfFirstRun(monthsBack: Long = 6) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // Log data state for debugging
+                DataDebugger.logDataState(getApplication())
+                
                 val alreadyDone = prefs.getBoolean("initial_import_done", false)
                 val existingCount = try { dao.getSmsTransactionCount() } catch (e: Exception) { 0 }
-                if (!alreadyDone || existingCount == 0) {
+                
+                Log.d("HomeVm", "importIfFirstRun: alreadyDone=$alreadyDone, existingCount=$existingCount")
+                
+                // If database is empty, clear the flag to ensure fresh import
+                if (existingCount == 0 && alreadyDone) {
+                    Log.d("HomeVm", "Database is empty but flag shows import done. Clearing flag for fresh import.")
+                    prefs.edit().putBoolean("initial_import_done", false).apply()
+                }
+                
+                // Check again after potential flag reset
+                val shouldImport = !prefs.getBoolean("initial_import_done", false) || existingCount == 0
+                
+                if (shouldImport) {
+                    Log.d("HomeVm", "Starting fresh SMS import. existingCount=$existingCount, alreadyDone=$alreadyDone")
                     importRecentSms(monthsBack)
                 } else {
                     Log.d("HomeVm", "Skipping importIfFirstRun: already done and DB has $existingCount entries")
                 }
-            } catch (_: Exception) { /* ignore */ }
+            } catch (e: Exception) { 
+                Log.e("HomeVm", "Error in importIfFirstRun", e)
+            }
         }
     }
 
@@ -403,6 +459,27 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
             0 to 0 // Return default values if database access fails
         }
     }
+    
+    /** Get all transactions for export */
+    suspend fun getAllTransactions(): List<Transaction> {
+        return try {
+            dao.getAllTransactions()
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error getting all transactions", e)
+            emptyList()
+        }
+    }
+    
+    /** Reset ViewModel state for fresh start */
+    fun resetViewModel() {
+        _isImporting.value = false
+        _isProcessing.value = false
+        _processingStats.value = SmsProcessingStats()
+        _lastImportTime.value = null
+        _lastProcessingTime.value = null
+        _errorMessage.value = null
+        _successMessage.value = null
+    }
 
     /** Get detailed SMS processing statistics */
     suspend fun getSmsProcessingStats(): SmsProcessingStats {
@@ -439,6 +516,55 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+        }
+    }
+
+    /** Update transaction category by changing merchant name */
+    fun updateTransactionCategory(transactionId: Long, newMerchant: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val transaction = dao.getTransactionById(transactionId)
+                if (transaction != null) {
+                    val updatedTransaction = transaction.copy(merchant = newMerchant)
+                    dao.update(updatedTransaction)
+                }
+            } catch (e: Exception) {
+                Log.e("HomeVm", "Error updating transaction category", e)
+            }
+        }
+    }
+
+    /** Get transaction by ID */
+    suspend fun getTransactionById(id: Long): Transaction? {
+        return try {
+            dao.getTransactionById(id)
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error getting transaction by ID", e)
+            null
+        }
+    }
+    
+    /** Check if AI insights are configured */
+    suspend fun hasAiInsightsConfigured(): Boolean {
+        return try {
+            val securePrefs = SecurePreferences(getApplication())
+            val apiKey = securePrefs.getApiKey()
+            val customEndpoint = securePrefs.getCustomEndpoint()
+            !apiKey.isNullOrBlank() || !customEndpoint.isNullOrBlank()
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error checking AI insights configuration", e)
+            false
+        }
+    }
+    
+    /** Check and update AI insights configuration state */
+    private suspend fun checkAiInsightsConfiguration() {
+        try {
+            val configured = hasAiInsightsConfigured()
+            _hasAiInsightsConfigured.value = configured
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error checking AI insights configuration", e)
+            _hasAiInsightsConfigured.value = false
         }
     }
 }

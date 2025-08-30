@@ -47,7 +47,9 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
                         Text(
                             "Smart Expenses",
                             style = MaterialTheme.typography.headlineSmall,
@@ -153,7 +155,12 @@ fun HomeScreen(
                     items = transactions.take(10),
                     key = { it.id }
                 ) { transaction ->
-                    ModernTransactionCard(transaction = transaction)
+                    ModernTransactionCard(
+                        transaction = transaction,
+                        onUpdateCategory = { transactionId, category ->
+                            homeVm.updateTransactionCategory(transactionId, category)
+                        }
+                    )
                 }
             }
             
@@ -332,7 +339,10 @@ fun StatItem(
 }
 
 @Composable
-fun ModernTransactionCard(transaction: Transaction) {
+fun ModernTransactionCard(
+    transaction: Transaction,
+    onUpdateCategory: ((Long, String) -> Unit)? = null
+) {
     val currencyFormat = remember { NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-IN")) }
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     
@@ -343,6 +353,7 @@ fun ModernTransactionCard(transaction: Transaction) {
     val categoryIcon = getCategoryIcon(displayName)
     val categoryColor = getCategoryColor(displayName)
     var expanded by remember { mutableStateOf(false) }
+    var showCategoryDialog by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -362,7 +373,12 @@ fun ModernTransactionCard(transaction: Transaction) {
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(categoryColor.copy(alpha = 0.1f)),
+                    .background(categoryColor.copy(alpha = 0.1f))
+                    .clickable { 
+                        if (onUpdateCategory != null) {
+                            showCategoryDialog = true 
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -448,6 +464,17 @@ fun ModernTransactionCard(transaction: Transaction) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
+        }
+        
+        // Category selection dialog
+        if (showCategoryDialog && onUpdateCategory != null) {
+            CategorySelectionDialog(
+                onDismiss = { showCategoryDialog = false },
+                onCategorySelected = { category ->
+                    onUpdateCategory(transaction.id, category)
+                    showCategoryDialog = false
+                }
+            )
         }
     }
 }
@@ -633,5 +660,125 @@ fun getCategoryColor(merchant: String): Color {
         merchant.contains("education", ignoreCase = true) -> CategoryEducation
         
         else -> CategoryOther
+    }
+}
+
+@Composable
+fun CategorySelectionDialog(
+    onDismiss: () -> Unit,
+    onCategorySelected: (String) -> Unit
+) {
+    val categories = remember {
+        listOf(
+            "Food" to Icons.Outlined.Restaurant,
+            "Transport" to Icons.Outlined.DirectionsCar,
+            "Shopping" to Icons.Outlined.ShoppingCart,
+            "Entertainment" to Icons.Outlined.Movie,
+            "Bills" to Icons.Outlined.Receipt,
+            "Health" to Icons.Outlined.LocalHospital,
+            "Education" to Icons.Outlined.School,
+            "Other" to Icons.Outlined.AccountBalance
+        )
+    }
+    
+    val categoryColors = remember {
+        mapOf(
+            "Food" to CategoryFood,
+            "Transport" to CategoryTransport,
+            "Shopping" to CategoryShopping,
+            "Entertainment" to CategoryEntertainment,
+            "Bills" to CategoryBills,
+            "Health" to CategoryHealth,
+            "Education" to CategoryEducation,
+            "Other" to CategoryOther
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                "Select Category",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                for (row in categories.chunked(4)) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        for ((category, icon) in row) {
+                            CategoryChip(
+                                category = category,
+                                icon = icon,
+                                color = categoryColors[category] ?: CategoryOther,
+                                onClick = { onCategorySelected(category) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun CategoryChip(
+    category: String,
+    icon: ImageVector,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        onClick = onClick,
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        ),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(color.copy(alpha = 0.1f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = category,
+                    tint = color,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            Text(
+                text = category,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }

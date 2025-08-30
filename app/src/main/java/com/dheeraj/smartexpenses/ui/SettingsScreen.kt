@@ -23,12 +23,17 @@ import androidx.compose.animation.scaleIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.dheeraj.smartexpenses.ui.SmsProcessingStats
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 
 @Composable
 fun SettingsScreen(homeVm: HomeVm) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showFreshStartConfirm by remember { mutableStateOf(false) }
     var showSmsLoader by remember { mutableStateOf(false) }
     var smsCount by remember { mutableStateOf(0) }
     var transactionCount by remember { mutableStateOf(0) }
@@ -76,6 +81,94 @@ fun SettingsScreen(homeVm: HomeVm) {
                         title = "Clear All Data & Retry",
                         subtitle = "Delete all transactions and reprocess SMS with AI",
                         onClick = { showDeleteConfirm = true }
+                    )
+                )
+            )
+        }
+        
+        // Export section
+        item {
+            SettingsSection(
+                title = "Export & Backup",
+                items = listOf(
+                    SettingsItem(
+                        icon = Icons.Outlined.Download,
+                        title = "Export to CSV",
+                        subtitle = "Export all transactions to CSV file",
+                        onClick = { 
+                            scope.launch {
+                                val exportManager = com.dheeraj.smartexpenses.export.ExportManager(context)
+                                val transactions = homeVm.getAllTransactions()
+                                val uri = exportManager.exportToCSV(transactions)
+                                uri?.let {
+                                    exportManager.shareFile(it, "text/csv", "SmartExpenses Transactions")
+                                }
+                            }
+                        }
+                    ),
+                    SettingsItem(
+                        icon = Icons.Outlined.PictureAsPdf,
+                        title = "Export to PDF",
+                        subtitle = "Generate PDF report of transactions",
+                        onClick = { 
+                            scope.launch {
+                                val exportManager = com.dheeraj.smartexpenses.export.ExportManager(context)
+                                val transactions = homeVm.getAllTransactions()
+                                val uri = exportManager.exportToPDF(transactions)
+                                uri?.let {
+                                    exportManager.shareFile(it, "application/pdf", "SmartExpenses Report")
+                                }
+                            }
+                        }
+                    )
+                )
+            )
+        }
+        
+        // Security section
+        item {
+            SettingsSection(
+                title = "Security",
+                items = listOf(
+                    SettingsItem(
+                        icon = Icons.Outlined.Fingerprint,
+                        title = "Biometric Lock",
+                        subtitle = "Secure app with fingerprint or face unlock",
+                        onClick = { /* TODO: Implement biometric settings */ }
+                    ),
+                    SettingsItem(
+                        icon = Icons.Outlined.Lock,
+                        title = "App Lock",
+                        subtitle = "Require authentication to open app",
+                        onClick = { /* TODO: Implement app lock settings */ }
+                    )
+                )
+            )
+        }
+        
+        // Data Management section
+        item {
+            SettingsSection(
+                title = "Data Management",
+                items = listOf(
+                    SettingsItem(
+                        icon = Icons.Outlined.Clear,
+                        title = "Clear & Reprocess",
+                        subtitle = "Clear transactions and re-import SMS",
+                        onClick = { 
+                            scope.launch {
+                                homeVm.clearSmsTransactions()
+                                homeVm.importRecentSms()
+                            }
+                        }
+                    ),
+                    SettingsItem(
+                        icon = Icons.Outlined.Refresh,
+                        title = "Fresh Start",
+                        subtitle = "Clear all data and reset app completely",
+                        onClick = { 
+                            showFreshStartConfirm = true
+                        }
                     )
                 )
             )
@@ -167,6 +260,56 @@ fun SettingsScreen(homeVm: HomeVm) {
                     )
                 ) {
                     Text("Clear & Reprocess")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFreshStartConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    
+    // Fresh Start confirmation dialog
+    if (showFreshStartConfirm) {
+        AlertDialog(
+            onDismissRequest = { showFreshStartConfirm = false },
+            title = { Text("Fresh Start") },
+            text = { 
+                Text(
+                    "This will delete ALL data including transactions, budgets, and settings. " +
+                    "This action cannot be undone. Are you sure?"
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showFreshStartConfirm = false
+                        scope.launch {
+                            try {
+                                // Clear all data
+                                com.dheeraj.smartexpenses.data.AppDb.clearAllData(context)
+                                
+                                // Reset the ViewModel
+                                homeVm.resetViewModel()
+                                
+                                // Show success message
+                                Toast.makeText(context, "All data cleared. App will restart fresh.", Toast.LENGTH_LONG).show()
+                                
+                                // Reload counts after clearing
+                                val stats = homeVm.getTransactionStats()
+                                smsCount = stats.second
+                                transactionCount = stats.first
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error clearing data: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Yes, Clear Everything")
                 }
             },
             dismissButton = {

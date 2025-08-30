@@ -18,6 +18,8 @@ import androidx.navigation.compose.rememberNavController
 sealed class Screen(val route: String, val title: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     object Home : Screen("home", "Home", Icons.Outlined.Home, Icons.Filled.Home)
     object Analytics : Screen("analytics", "Analytics", Icons.Outlined.Analytics, Icons.Filled.Analytics)
+    object Budget : Screen("budget", "Budget", Icons.Outlined.AccountBalanceWallet, Icons.Filled.AccountBalanceWallet)
+    object AiInsights : Screen("ai_insights", "AI Insights", Icons.Outlined.SmartToy, Icons.Filled.SmartToy)
     object Settings : Screen("settings", "Settings", Icons.Outlined.Settings, Icons.Filled.Settings)
     object TransactionList : Screen("transaction_list", "All Transactions", Icons.Outlined.List, Icons.Filled.List)
 }
@@ -29,7 +31,7 @@ fun MainNavigation(
     onAddTransaction: () -> Unit
 ) {
     val navController = rememberNavController()
-    val screens = listOf(Screen.Home, Screen.Analytics, Screen.Settings)
+    val screens = listOf(Screen.Home, Screen.Analytics, Screen.Budget, Screen.AiInsights, Screen.Settings)
     
     Scaffold(
         bottomBar = {
@@ -78,6 +80,12 @@ fun MainNavigation(
             }
             composable(Screen.Analytics.route) {
                 AnalyticsScreen(homeVm = homeVm)
+            }
+            composable(Screen.Budget.route) {
+                BudgetScreen()
+            }
+            composable(Screen.AiInsights.route) {
+                AiInsightsScreen()
             }
             composable(Screen.Settings.route) {
                 SettingsScreen(homeVm = homeVm)

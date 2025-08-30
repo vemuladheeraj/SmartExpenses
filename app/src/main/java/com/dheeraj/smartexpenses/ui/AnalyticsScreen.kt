@@ -23,7 +23,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dheeraj.smartexpenses.data.Transaction
-import com.dheeraj.smartexpenses.sms.SmsClassifierTest
 import com.dheeraj.smartexpenses.ui.theme.*
 import java.text.NumberFormat
 import java.util.*
@@ -183,6 +182,15 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         if (showInsights) {
             item { SpendingInsightsCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
         }
+        
+        // AI Insights Unlock Section
+        item { 
+            val hasConfiguredKey by homeVm.hasAiInsightsConfigured.collectAsState()
+            AiInsightsUnlockCard(
+                hasConfiguredKey = hasConfiguredKey,
+                onNavigateToAiInsights = { /* Navigation will be handled by parent */ }
+            ) 
+        }
 
         if (showCategories) {
             item { CategoryBreakdownCard(titleSuffix = selectedChipsLabel, transactions = rangeTransactions, currencyFormat = currencyFormat) }
@@ -224,6 +232,8 @@ fun AnalyticsScreen(homeVm: HomeVm) {
         }
     }
 }
+
+// DailyAiTipsSection removed - not implemented in current AiInsightsUiState
 
 @Composable
 fun InfoIconWithDialog(title: String, body: String) {
@@ -1771,6 +1781,71 @@ fun EnhancedOverviewCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun AiInsightsUnlockCard(
+    hasConfiguredKey: Boolean,
+    onNavigateToAiInsights: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (hasConfiguredKey) 
+                MaterialTheme.colorScheme.primaryContainer 
+            else 
+                MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (hasConfiguredKey) Icons.Outlined.SmartToy else Icons.Outlined.Lock,
+                    contentDescription = null,
+                    tint = if (hasConfiguredKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = if (hasConfiguredKey) "AI Insights Available" else "Unlock AI Insights",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            Text(
+                text = if (hasConfiguredKey) {
+                    "Get personalized financial insights powered by AI. Analyze spending patterns, identify trends, and receive smart recommendations."
+                } else {
+                    "Configure your Google AI Studio API key to unlock advanced AI-powered financial insights and personalized recommendations."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (hasConfiguredKey) 
+                    MaterialTheme.colorScheme.onPrimaryContainer 
+                else 
+                    MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            
+            Spacer(modifier = Modifier.height(12.dp))
+            
+            Button(
+                onClick = onNavigateToAiInsights,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = if (hasConfiguredKey) Icons.Outlined.SmartToy else Icons.Outlined.OpenInNew,
+                    contentDescription = null
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(if (hasConfiguredKey) "View AI Insights" else "Setup AI Insights")
             }
         }
     }

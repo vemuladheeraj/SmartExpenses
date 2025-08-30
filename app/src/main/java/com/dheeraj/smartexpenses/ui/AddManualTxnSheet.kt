@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,12 +22,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.dheeraj.smartexpenses.ui.theme.*
+import com.dheeraj.smartexpenses.utils.CategoryUtils
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddManualTxnSheet(
-    onSave: (amount: Double, type: String, merchant: String?, channel: String?) -> Unit,
+    onSave: (amount: Double, type: String, merchant: String?, channel: String?, category: String?) -> Unit,
     onDismiss: () -> Unit
 ) {
     var amount by remember { mutableStateOf("") }
@@ -34,6 +37,15 @@ fun AddManualTxnSheet(
     var merchant by remember { mutableStateOf("") }
     var channel by remember { mutableStateOf("CASH") }
     var selectedCategory by remember { mutableStateOf("Other") }
+    var showAddCategoryDialog by remember { mutableStateOf(false) }
+    
+    val categoryViewModel: CategoryViewModel = viewModel()
+    val categories by categoryViewModel.allCategories.collectAsState(initial = emptyList())
+    
+    // Debug categories on first load
+    LaunchedEffect(Unit) {
+        categoryViewModel.debugCategories()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -155,7 +167,9 @@ fun AddManualTxnSheet(
             
             CategoryGrid(
                 selectedCategory = selectedCategory,
-                onCategorySelected = { selectedCategory = it }
+                onCategorySelected = { selectedCategory = it },
+                categories = categories,
+                onAddNewCategory = { showAddCategoryDialog = true }
             )
             
             Spacer(modifier = Modifier.height(24.dp))
@@ -208,7 +222,8 @@ fun AddManualTxnSheet(
                         amount.toDouble(),
                         type,
                         merchant.ifBlank { null },
-                        channel.ifBlank { null }
+                        channel.ifBlank { null },
+                        selectedCategory
                     )
                     onDismiss()
                 },
@@ -225,6 +240,17 @@ fun AddManualTxnSheet(
             
             Spacer(modifier = Modifier.height(16.dp))
         }
+    }
+    
+    // Add Category Dialog
+    if (showAddCategoryDialog) {
+        AddCategoryDialog(
+            onDismiss = { showAddCategoryDialog = false },
+            onCategoryAdded = { name, icon, color ->
+                categoryViewModel.addCategory(name, icon, color)
+                selectedCategory = name
+            }
+        )
     }
 }
 
@@ -260,50 +286,84 @@ private fun TypeChip(
 @Composable
 private fun CategoryGrid(
     selectedCategory: String,
-    onCategorySelected: (String) -> Unit
+    onCategorySelected: (String) -> Unit,
+    categories: List<com.dheeraj.smartexpenses.data.Category>,
+    onAddNewCategory: () -> Unit
 ) {
-    val categories = remember {
-        listOf(
-            "Food" to Icons.Outlined.Restaurant,
-            "Transport" to Icons.Outlined.DirectionsCar,
-            "Shopping" to Icons.Outlined.ShoppingCart,
-            "Entertainment" to Icons.Outlined.Movie,
-            "Bills" to Icons.Outlined.Receipt,
-            "Health" to Icons.Outlined.LocalHospital,
-            "Education" to Icons.Outlined.School,
-            "Other" to Icons.Outlined.AccountBalance
-        )
-    }
-    
-    val categoryColors = remember {
-        mapOf(
-            "Food" to CategoryFood,
-            "Transport" to CategoryTransport,
-            "Shopping" to CategoryShopping,
-            "Entertainment" to CategoryEntertainment,
-            "Bills" to CategoryBills,
-            "Health" to CategoryHealth,
-            "Education" to CategoryEducation,
-            "Other" to CategoryOther
-        )
-    }
     
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        for (row in categories.chunked(4)) {
+        // Convert database categories to display format
+        val displayCategories = categories.map { category ->
+            category.name to CategoryUtils.getIconFromName(category.icon)
+        }
+        
+        // Add "Add New" option
+        val allCategories = displayCategories + ("Add New" to Icons.Outlined.Add)
+        
+        for (row in allCategories.chunked(4)) {
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                for ((category, icon) in row) {
-                    CategoryChip(
-                        category = category,
-                        icon = icon,
-                        color = categoryColors[category] ?: CategoryOther,
-                        selected = selectedCategory == category,
-                        onClick = { onCategorySelected(category) },
-                        modifier = Modifier.weight(1f)
-                    )
+                for ((categoryName, icon) in row) {
+                    if (categoryName == "Add New") {
+                        // Add New Category Chip
+                        Card(
+                            onClick = onAddNewCategory,
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = "Add New Category",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                Text(
+                                    text = "Add New",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    } else {
+                        // Regular Category Chip
+                        val category = categories.find { it.name == categoryName }
+                        val color = category?.let { CategoryUtils.getColorFromString(it.color) } ?: CategoryOther
+                        
+                        CategoryChip(
+                            category = categoryName,
+                            icon = icon,
+                            color = color,
+                            selected = selectedCategory == categoryName,
+                            onClick = { onCategorySelected(categoryName) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
                 }
             }
         }

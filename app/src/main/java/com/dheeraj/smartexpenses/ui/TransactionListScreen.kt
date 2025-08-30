@@ -164,7 +164,9 @@ fun TransactionListScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
+                    Column(
+                        modifier = Modifier.padding(top = 8.dp)
+                    ) {
                         Text(
                             "All Transactions",
                             style = MaterialTheme.typography.headlineSmall,
@@ -461,7 +463,12 @@ fun TransactionListScreen(
                     items = filteredTransactions,
                     key = { it.id }
                 ) { transaction ->
-                    ModernTransactionCard(transaction = transaction)
+                    ModernTransactionCard(
+                        transaction = transaction,
+                        onUpdateCategory = { transactionId, category ->
+                            homeVm.updateTransactionCategory(transactionId, category)
+                        }
+                    )
                 }
             }
 

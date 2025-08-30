@@ -1,30 +1,42 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
+    
+    <!-- Wallet Body -->
     <path
         android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+        android:pathData="M25,35 L83,35 C86,35 88,37 88,40 L88,68 C88,71 86,73 83,73 L25,73 C22,73 20,71 20,68 L20,40 C20,37 22,35 25,35 Z"/>
+    
+    <!-- Wallet Fold -->
+    <path
+        android:fillColor="#E3F2FD"
+        android:pathData="M20,40 L88,40 L88,45 L20,45 Z"/>
+    
+    <!-- Money/Currency Symbol -->
+    <path
+        android:fillColor="#4CAF50"
+        android:pathData="M35,50 L73,50 C75,50 77,52 77,54 L77,62 C77,64 75,66 73,66 L35,66 C33,66 31,64 31,62 L31,54 C31,52 33,50 35,50 Z"/>
+    
+    <!-- Rupee Symbol -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,53 L42,63 L44,63 L44,61 L46,61 C48,61 50,59 50,57 C50,55 48,53 46,53 L42,53 Z M44,55 L46,55 C47,55 48,56 48,57 C48,58 47,59 46,59 L44,59 L44,55 Z"/>
+    
+    <!-- Card Slots -->
+    <path
+        android:fillColor="#BDBDBD"
+        android:pathData="M30,48 L78,48 L78,50 L30,50 Z"/>
+    <path
+        android:fillColor="#BDBDBD"
+        android:pathData="M30,52 L78,52 L78,54 L30,54 Z"/>
+    
+    <!-- Wallet Stitch Details -->
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M25,38 L83,38 L83,39 L25,39 Z"/>
+    <path
+        android:fillColor="#E0E0E0"
+        android:pathData="M25,70 L83,70 L83,71 L25,71 Z"/>
 </vector>

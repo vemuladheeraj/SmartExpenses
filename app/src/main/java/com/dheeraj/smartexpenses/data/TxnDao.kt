@@ -56,4 +56,12 @@ interface TxnDao {
     // Enrichment helpers: find recent transactions missing details
     @Query("SELECT * FROM transactions WHERE source LIKE 'SMS%' AND (merchant IS NULL OR channel IS NULL) ORDER BY ts DESC LIMIT :limit")
     suspend fun findNeedingEnrichment(limit: Int = 200): List<Transaction>
+
+    // Get all transactions for export
+    @Query("SELECT * FROM transactions ORDER BY ts DESC")
+    suspend fun getAllTransactions(): List<Transaction>
+
+    // Get transaction by ID
+    @Query("SELECT * FROM transactions WHERE id = :id")
+    suspend fun getTransactionById(id: Long): Transaction?
 }
