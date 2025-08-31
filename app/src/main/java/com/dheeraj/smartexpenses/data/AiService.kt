@@ -75,13 +75,26 @@ class AiService {
             val text = geminiResponse.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: throw IOException("No response content from Gemini")
             
+            // Clean the response text to extract JSON
+            val cleanedText = extractJsonFromResponse(text)
+            Log.d(TAG, "Cleaned JSON response: $cleanedText")
+            
             // Try to parse as direct JSON first, then as wrapped JSON
             try {
-                json.decodeFromString(AiInsights.serializer(), text)
+                json.decodeFromString(AiInsights.serializer(), cleanedText)
             } catch (e: Exception) {
                 // Try wrapped format
-                val wrappedResponse = json.decodeFromString(CustomEndpointResponse.serializer(), text)
-                wrappedResponse.insights
+                try {
+                    val wrappedResponse = json.decodeFromString(CustomEndpointResponse.serializer(), cleanedText)
+                    wrappedResponse.insights ?: throw IOException("Insights field is null in wrapped response")
+                } catch (e2: Exception) {
+                    // If both fail, log the actual response for debugging
+                    Log.e(TAG, "Failed to parse Gemini response. Original text: $text")
+                    Log.e(TAG, "Cleaned text: $cleanedText")
+                    Log.e(TAG, "Direct parsing error: ${e.message}")
+                    Log.e(TAG, "Wrapped parsing error: ${e2.message}")
+                    throw e2
+                }
             }
         }
     }
@@ -105,8 +118,16 @@ class AiService {
             try {
                 json.decodeFromString(AiInsights.serializer(), responseBody)
             } catch (e: Exception) {
-                val wrappedResponse = json.decodeFromString(CustomEndpointResponse.serializer(), responseBody)
-                wrappedResponse.insights
+                try {
+                    val wrappedResponse = json.decodeFromString(CustomEndpointResponse.serializer(), responseBody)
+                    wrappedResponse.insights ?: throw IOException("Insights field is null in wrapped response")
+                } catch (e2: Exception) {
+                    // If both fail, log the actual response for debugging
+                    Log.e(TAG, "Failed to parse custom endpoint response. Response body: $responseBody")
+                    Log.e(TAG, "Direct parsing error: ${e.message}")
+                    Log.e(TAG, "Wrapped parsing error: ${e2.message}")
+                    throw e2
+                }
             }
         }
     }
@@ -164,37 +185,43 @@ class AiService {
         )
         
         return """
-            Analyze the following transaction data and return ONLY a JSON object with this exact structure (no markdown, no code fences, no prose):
-            
+            You are a financial analysis AI. Analyze the transaction data and return ONLY a valid JSON object with this exact structure. Do not include any markdown, code fences, explanations, or additional text.
+
+            Expected JSON structure:
             {
               "kpis": {
-                "total_spend_inr": number,
-                "debit_count": number,
-                "credit_count": number,
-                "largest_txn_amount": number,
-                "largest_txn_merchant": string,
-                "unusual_spend_flag": boolean
+                "total_spend_inr": 0.0,
+                "debit_count": 0,
+                "credit_count": 0,
+                "largest_txn_amount": 0.0,
+                "largest_txn_merchant": null,
+                "unusual_spend_flag": false
               },
               "breakdowns": {
-                "by_category": [{"name": string, "amount": number}],
-                "by_rail": [{"name": string, "amount": number}]
+                "by_category": [{"name": null, "amount": 0.0}],
+                "by_rail": [{"name": "", "amount": 0.0}]
               },
-              "large_txns": [{"date": "YYYY-MM-DD", "merchant": string, "amount": number}],
-              "recurring": [{"name": string, "day_of_month": number, "amount": number}],
-              "notes": string
+              "large_txns": [{"date": "YYYY-MM-DD", "merchant": null, "amount": 0.0}],
+              "recurring": [{"name": "", "day_of_month": 1, "amount": 0.0}],
+              "notes": ""
             }
-            
+
             Transaction data:
             $transactionsJson
             
-            Instructions:
+            Analysis instructions:
             - Calculate total spend from debit transactions only
-            - Identify unusual spending (transactions > 2x average transaction amount)
+            - Count debit and credit transactions separately
+            - Find the largest transaction amount and merchant (use null if merchant is unknown)
+            - Flag unusual spending (transactions > 2x average transaction amount)
             - Group by category and payment rail (UPI/CARD/IMPS/NEFT/POS)
+            - For categories, use null if category cannot be determined, otherwise use descriptive names like "Food", "Transport", "Shopping", etc.
             - Find large transactions (>₹1000)
             - Identify potential recurring payments (same merchant, similar amount, same day of month)
             - Provide 1-2 line insights about spending patterns
-            - Return ONLY the JSON, no other text
+            - Ensure all numeric fields are numbers, not strings
+            - Use null for missing merchant names or unknown values
+            - Return ONLY the JSON object, no markdown, no code blocks, no explanations
         """.trimIndent()
     }
     
@@ -203,6 +230,29 @@ class AiService {
             Analyze the provided transaction data and return insights in the specified JSON format.
             Focus on spending patterns, categories, payment methods, and financial insights.
         """.trimIndent()
+    }
+    
+    private fun extractJsonFromResponse(text: String): String {
+        // Remove markdown code blocks
+        var cleaned = text.trim()
+        
+        // Remove ```json and ``` markers
+        cleaned = cleaned.replace(Regex("```json\\s*"), "")
+        cleaned = cleaned.replace(Regex("```\\s*"), "")
+        
+        // Find the first { and last } to extract JSON
+        val startIndex = cleaned.indexOf('{')
+        val endIndex = cleaned.lastIndexOf('}')
+        
+        if (startIndex != -1 && endIndex != -1 && endIndex > startIndex) {
+            cleaned = cleaned.substring(startIndex, endIndex + 1)
+        }
+        
+        // Additional cleaning for common AI response artifacts
+        cleaned = cleaned.replace(Regex("^[^{]*"), "") // Remove text before first {
+        cleaned = cleaned.replace(Regex("[^}]*$"), "") // Remove text after last }
+        
+        return cleaned.trim()
     }
     
     companion object {

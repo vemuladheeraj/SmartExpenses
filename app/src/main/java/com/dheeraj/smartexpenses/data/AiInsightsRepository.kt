@@ -24,6 +24,26 @@ class AiInsightsRepository(
         cache.loadInsights()
     }
     
+    suspend fun getInsights(): AiInsights? = withContext(Dispatchers.IO) {
+        try {
+            // Try to get cached insights first
+            var insights = cache.loadInsights()
+            
+            // If no cached insights, try to fetch fresh ones
+            if (insights == null) {
+                val result = refreshInsights()
+                if (result.isSuccess) {
+                    insights = result.getOrThrow()
+                }
+            }
+            
+            insights
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get insights", e)
+            null
+        }
+    }
+    
     suspend fun getLastUpdatedTime(): String = withContext(Dispatchers.IO) {
         cache.getLastUpdatedTimeFormatted()
     }
@@ -82,7 +102,9 @@ class AiInsightsRepository(
     
     suspend fun saveApiKey(apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "Attempting to save API key: ${apiKey.take(10)}...")
             if (!isValidApiKey(apiKey)) {
+                Log.e(TAG, "Invalid API key format: ${apiKey.take(10)}...")
                 return@withContext Result.failure(IllegalArgumentException("Invalid API key format"))
             }
             
@@ -138,7 +160,12 @@ class AiInsightsRepository(
         return runCatching {
             val apiKey = securePrefs.getApiKey()
             val endpoint = securePrefs.getCustomEndpoint()
-            !apiKey.isNullOrBlank() || !endpoint.isNullOrBlank()
+            Log.d(TAG, "hasConfiguredKey check - apiKey: ${apiKey?.take(10) ?: "null"}..., endpoint: $endpoint")
+            val hasValidApiKey = !apiKey.isNullOrBlank() && apiKey.startsWith("AIza")
+            val hasValidEndpoint = !endpoint.isNullOrBlank() && (endpoint.startsWith("http://") || endpoint.startsWith("https://"))
+            val result = hasValidApiKey || hasValidEndpoint
+            Log.d(TAG, "hasConfiguredKey result: $result (hasValidApiKey: $hasValidApiKey, hasValidEndpoint: $hasValidEndpoint)")
+            result
         }.getOrNull() ?: false
     }
     

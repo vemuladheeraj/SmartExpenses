@@ -167,8 +167,10 @@ fun AnalyticsScreen(homeVm: HomeVm) {
                 val start = cal.timeInMillis
                 val end = System.currentTimeMillis()
                 val monthTxns = allTransactions.filter { it.ts in start..end }
-                val mCredit = monthTxns.filter { it.type == "CREDIT" }.sumOf { it.amount }
-                val mDebit  = monthTxns.filter { it.type == "DEBIT" }.sumOf { it.amount }
+                // Apply same filtering logic as other calculations
+                val monthPairedIds = findPairedTransferIds(monthTxns)
+                val mCredit = monthTxns.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in monthPairedIds }.sumOf { it.amount }
+                val mDebit  = monthTxns.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in monthPairedIds }.sumOf { it.amount }
                 val mBalance = mCredit - mDebit
                 MonthlyOverviewCard(totalCredit = mCredit, totalDebit = mDebit, balance = mBalance, currencyFormat = currencyFormat)
             }
@@ -257,7 +259,9 @@ fun TopMerchantsCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val totals = debitTransactions.groupBy { ((it.merchant ?: extractCounterpartyName(it.rawBody)) ?: "Unknown").trim() }
         .mapValues { it.value.sumOf { t -> t.amount } }
         .toList()
@@ -296,7 +300,9 @@ fun BiggestExpensesCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val biggest = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val biggest = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
         .sortedByDescending { it.amount }
         .take(10)
 
@@ -409,7 +415,9 @@ fun SpendingInsightsCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val avgSpending = if (debitTransactions.isNotEmpty()) {
         debitTransactions.sumOf { it.amount } / debitTransactions.size
     } else 0.0
@@ -509,7 +517,9 @@ fun CategoryBreakdownCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val categoryMap = mutableMapOf<String, Double>()
     
     debitTransactions.forEach { transaction ->
@@ -671,7 +681,9 @@ fun WeeklySpendingChart(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val days = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
     val totalsByDay = MutableList(7) { 0.0 }
     debitTransactions.forEach { t ->
@@ -950,24 +962,35 @@ fun ChannelBreakdownCard(
 }
 
 private fun isInterAccountTransfer(transaction: Transaction): Boolean {
+    // Check if it's marked as TRANSFER type
     if (transaction.type == "TRANSFER") return true
     
     val body = transaction.rawBody.lowercase()
-    val transferKeywords = listOf(
-        "transfer", "transferred", "moved", "shifted", "account to account",
-        "a/c transfer", "account transfer", "internal transfer", "self transfer",
-        "own account", "same bank", "intra bank", "inter account"
-    )
     
-    return transferKeywords.any { body.contains(it) } ||
-           (transaction.merchant?.lowercase()?.contains("transfer") == true) ||
-           (transaction.channel?.lowercase()?.contains("transfer") == true) ||
-           (body.contains("credited") && body.contains("debited")) ||
-           (body.contains("from") && body.contains("to") && 
-            (body.contains("account") || body.contains("a/c")))
+    // Strong indicators of internal transfer; avoid broad keywords that misclassify card/UPI
+    val strongTransferKeywords = listOf(
+        "self transfer", "own account", "between your accounts", "internal transfer",
+        "intra bank", "same bank", "account to account", "a/c to a/c", "inter account"
+    )
+
+    if (strongTransferKeywords.any { body.contains(it) }) return true
+
+    // One SMS showing both credit and debit (typical for internal movement)
+    if (body.contains("credited") && body.contains("debited")) return true
+
+    // If two account tails are present, likely internal
+    val tails = Regex("(?i)(?:a/c|account)(?:.*?)([0-9]{2,6})").findAll(transaction.rawBody).toList()
+    if (tails.size >= 2) return true
+
+    return false
 }
 
-// Pair same-amount credit/debit within a 2-hour window to identify likely internal transfers
+/**
+ * Identify likely inter-account transfers by pairing a debit and a credit
+ * with the exact same amount occurring close in time (default 2 hours),
+ * optionally matching on bank or account tail when available.
+ * Returns the set of transaction ids that are part of such pairs.
+ */
 private fun findPairedTransferIds(transactions: List<Transaction>, timeWindowMillis: Long = 2 * 60 * 60 * 1000): Set<Long> {
     if (transactions.isEmpty()) return emptySet()
 
@@ -983,23 +1006,46 @@ private fun findPairedTransferIds(transactions: List<Transaction>, timeWindowMil
         val d = debits[j]
         val dt = kotlin.math.abs(c.ts - d.ts)
 
+        // Move pointers to keep within time window
         if (c.ts < d.ts && (d.ts - c.ts) > timeWindowMillis) { i++; continue }
         if (d.ts < c.ts && (c.ts - d.ts) > timeWindowMillis) { j++; continue }
 
         val amountMatch = kotlin.math.abs(c.amount - d.amount) < 0.01
         val bankMatch = c.bank != null && d.bank != null && c.bank == d.bank
         val tailMatch = c.accountTail != null && d.accountTail != null && c.accountTail == d.accountTail
+        val nameMatch = namesSimilar(c.merchant, d.merchant) ||
+                namesSimilar(extractCounterparty(c.rawBody), extractCounterparty(d.rawBody)) ||
+                (normalizeName(c.rawSender) != null && normalizeName(c.rawSender) == normalizeName(d.rawSender))
 
-        if (dt <= timeWindowMillis && amountMatch && (bankMatch || tailMatch)) {
+        if (dt <= timeWindowMillis && amountMatch && (bankMatch || tailMatch || nameMatch)) {
             pairedIds += c.id
             pairedIds += d.id
             i++; j++
         } else {
+            // advance the earlier one to search for a closer match
             if (c.ts <= d.ts) i++ else j++
         }
     }
 
     return pairedIds
+}
+
+// Helper functions for name matching (copied from HomeVm)
+private fun namesSimilar(a: String?, b: String?): Boolean {
+    val na = normalizeName(a) ?: return false
+    val nb = normalizeName(b) ?: return false
+    return na == nb || na.contains(nb) || nb.contains(na)
+}
+
+private fun extractCounterparty(body: String?): String? {
+    if (body == null) return null
+    val regex = Regex("(?i)(?:to|from|at)\\s+([A-Za-z0-9 &._-]{3,40})")
+    val match = regex.find(body) ?: return null
+    return match.groupValues.getOrNull(1)
+}
+
+private fun normalizeName(s: String?): String? {
+    return s?.lowercase()?.replace("[^a-z0-9 ]".toRegex(), " ")?.trim()
 }
 
 // ===== NEW ENHANCED CHART COMPONENTS =====
@@ -1009,7 +1055,9 @@ fun SpendingTrendChart(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val dailySpending = debitTransactions
         .groupBy { 
             val calendar = Calendar.getInstance()
@@ -1073,7 +1121,9 @@ fun CategoryPieChart(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val categoryMap = mutableMapOf<String, Double>()
     
     debitTransactions.forEach { transaction ->
@@ -1292,7 +1342,9 @@ fun DailySpendingChart(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     val weeklySpending = mutableMapOf<String, Double>()
     
     // Group by day of week
@@ -1350,8 +1402,10 @@ fun SavingsGoalCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val totalIncome = transactions.filter { it.type == "CREDIT" }.sumOf { it.amount }
-    val totalExpenses = transactions.filter { it.type == "DEBIT" }.sumOf { it.amount }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val totalIncome = transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in paired }.sumOf { it.amount }
+    val totalExpenses = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }.sumOf { it.amount }
     val savings = totalIncome - totalExpenses
     val savingsRate = if (totalIncome > 0) (savings / totalIncome) * 100 else 0.0
     
@@ -1434,7 +1488,9 @@ fun SpendingPatternsCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     
     // Time-based patterns
     val hourlySpending = mutableMapOf<Int, Double>()
@@ -1631,8 +1687,10 @@ fun EnhancedOverviewCard(
     transactions: List<Transaction>,
     currencyFormat: NumberFormat
 ) {
-    val creditTransactions = transactions.filter { it.type == "CREDIT" }
-    val debitTransactions = transactions.filter { it.type == "DEBIT" }
+    // Apply same filtering logic as other calculations
+    val paired = findPairedTransferIds(transactions)
+    val creditTransactions = transactions.filter { it.type == "CREDIT" && !isInterAccountTransfer(it) && it.id !in paired }
+    val debitTransactions = transactions.filter { it.type == "DEBIT" && !isInterAccountTransfer(it) && it.id !in paired }
     
     val totalCredit = creditTransactions.sumOf { it.amount }
     val totalDebit = debitTransactions.sumOf { it.amount }

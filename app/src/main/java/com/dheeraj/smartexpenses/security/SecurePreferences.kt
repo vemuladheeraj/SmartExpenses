@@ -2,6 +2,7 @@ package com.dheeraj.smartexpenses.security
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.Dispatchers
@@ -38,20 +39,43 @@ class SecurePreferences(context: Context) {
     
     private val prefs: SharedPreferences = encryptedPrefs ?: fallbackPrefs
     
+    init {
+        Log.d(TAG, "SecurePreferences initialized - using encrypted storage: ${encryptedPrefs != null}")
+        if (encryptedPrefs == null) {
+            Log.w(TAG, "Falling back to unencrypted storage")
+        }
+    }
+    
     suspend fun saveApiKey(apiKey: String) = withContext(Dispatchers.IO) {
-        prefs.edit().putString(KEY_API_KEY, apiKey).apply()
+        Log.d(TAG, "Saving API key: ${apiKey.take(10)}...")
+        val success = prefs.edit().putString(KEY_API_KEY, apiKey).commit()
+        if (!success) {
+            Log.e(TAG, "Failed to save API key to preferences")
+            throw RuntimeException("Failed to save API key to preferences")
+        }
+        Log.d(TAG, "API key saved successfully")
     }
     
     suspend fun getApiKey(): String? = withContext(Dispatchers.IO) {
-        prefs.getString(KEY_API_KEY, null)
+        val key = prefs.getString(KEY_API_KEY, null)
+        Log.d(TAG, "Retrieved API key: ${key?.take(10) ?: "null"}...")
+        key
     }
     
     suspend fun saveCustomEndpoint(endpoint: String) = withContext(Dispatchers.IO) {
-        prefs.edit().putString(KEY_CUSTOM_ENDPOINT, endpoint).apply()
+        Log.d(TAG, "Saving custom endpoint: $endpoint")
+        val success = prefs.edit().putString(KEY_CUSTOM_ENDPOINT, endpoint).commit()
+        if (!success) {
+            Log.e(TAG, "Failed to save custom endpoint to preferences")
+            throw RuntimeException("Failed to save custom endpoint to preferences")
+        }
+        Log.d(TAG, "Custom endpoint saved successfully")
     }
     
     suspend fun getCustomEndpoint(): String? = withContext(Dispatchers.IO) {
-        prefs.getString(KEY_CUSTOM_ENDPOINT, null)
+        val endpoint = prefs.getString(KEY_CUSTOM_ENDPOINT, null)
+        Log.d(TAG, "Retrieved custom endpoint: $endpoint")
+        endpoint
     }
     
     suspend fun clearAll() = withContext(Dispatchers.IO) {
@@ -61,6 +85,7 @@ class SecurePreferences(context: Context) {
     fun isUsingEncryptedStorage(): Boolean = encryptedPrefs != null
     
     companion object {
+        private const val TAG = "SecurePreferences"
         private const val KEY_API_KEY = "ai_api_key"
         private const val KEY_CUSTOM_ENDPOINT = "ai_custom_endpoint"
     }

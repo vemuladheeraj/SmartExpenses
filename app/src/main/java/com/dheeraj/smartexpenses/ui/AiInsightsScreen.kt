@@ -1,42 +1,44 @@
 package com.dheeraj.smartexpenses.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.viewinterop.AndroidView
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.dheeraj.smartexpenses.data.*
+import androidx.lifecycle.LifecycleOwner
+import com.dheeraj.smartexpenses.data.AiInsights
+import com.dheeraj.smartexpenses.data.CategoryBreakdown
+import com.dheeraj.smartexpenses.data.LargeTransaction
+import com.dheeraj.smartexpenses.data.RailBreakdown
+import com.dheeraj.smartexpenses.data.RecurringPayment
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AiInsightsScreen(
     viewModel: AiInsightsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
@@ -44,6 +46,9 @@ fun AiInsightsScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val listState = rememberLazyListState()
+    val focusRequester = remember { FocusRequester() }
+    var userInput by remember { mutableStateOf("") }
     
     // Clear messages when screen becomes visible
     DisposableEffect(lifecycleOwner) {
@@ -58,118 +63,170 @@ fun AiInsightsScreen(
         }
     }
     
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(uiState.messages.size) {
+        if (uiState.messages.isNotEmpty()) {
+            listState.animateScrollToItem(uiState.messages.size - 1)
+        }
+    }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .background(MaterialTheme.colorScheme.background)
+            .imePadding() // Add IME padding to handle keyboard
     ) {
         // Header
-        Text(
-            text = "AI Insights",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer
+            ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Psychology,
+                        contentDescription = "AI Assistant",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AI Financial Assistant",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Text(
+                        text = "Ask me anything about your finances",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                    )
+                }
+                
+                if (uiState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
         
-        Text(
-            text = "Get personalized financial insights powered by AI",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-        
+        // Chat Messages
         LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 8.dp), // Add bottom padding for better spacing
+            state = listState,
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Status Messages
-            if (uiState.errorMessage != null || uiState.successMessage != null || uiState.statusMessage != null) {
+            // Welcome message
+            if (uiState.messages.isEmpty() && !uiState.isLoading) {
                 item {
-                    StatusMessageCard(
-                        errorMessage = uiState.errorMessage,
-                        successMessage = uiState.successMessage,
-                        statusMessage = uiState.statusMessage
-                    )
+                    WelcomeMessage()
                 }
             }
             
-            // API Key Setup Section
-            item {
-                ApiKeySetupCard(
-                    hasConfiguredKey = uiState.hasConfiguredKey,
-                    savedApiKey = uiState.savedApiKey,
-                    savedCustomEndpoint = uiState.savedCustomEndpoint,
-                    isUsingEncryptedStorage = uiState.isUsingEncryptedStorage,
-                    onSaveApiKey = { viewModel.saveApiKey(it) },
-                    onSaveCustomEndpoint = { viewModel.saveCustomEndpoint(it) },
-                    onClearData = { viewModel.clearAllData() }
+            // Chat messages
+            items(uiState.messages) { message ->
+                ChatMessage(message = message)
+            }
+            
+            // Loading indicator
+            if (uiState.isLoading) {
+                item {
+                    LoadingMessage()
+                }
+            }
+        }
+        
+        // Input Section
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp), // Reduce vertical padding
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = userInput,
+                    onValueChange = { userInput = it },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    placeholder = {
+                        Text(
+                            "Ask about your spending, budget, or financial goals...",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Text,
+                        imeAction = ImeAction.Send
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (userInput.trim().isNotEmpty()) {
+                                viewModel.sendMessage(userInput.trim())
+                                userInput = ""
+                            }
+                        }
+                    ),
+                    maxLines = 3
                 )
-            }
-            
-            // YouTube Tutorial Section
-            if (!uiState.hasConfiguredKey) {
-                item {
-                    TutorialCard()
-                }
-            }
-            
-            // Insights Display
-            if (uiState.insights != null) {
-                val insights = uiState.insights!!
-                item {
-                    InsightsOverviewCard(
-                        insights = insights,
-                        lastUpdatedTime = uiState.lastUpdatedTime,
-                        onRefresh = { viewModel.refreshInsights() },
-                        isLoading = uiState.isLoading
-                    )
-                }
                 
-                // KPIs Section
-                item {
-                    KpisCard(kpis = insights.kpis)
-                }
+                Spacer(modifier = Modifier.width(8.dp))
                 
-                // Category Breakdown
-                if (insights.breakdowns.byCategory.isNotEmpty()) {
-                    item {
-                        CategoryBreakdownCard(categories = insights.breakdowns.byCategory)
-                    }
-                }
-                
-                // Rail Breakdown
-                if (insights.breakdowns.byRail.isNotEmpty()) {
-                    item {
-                        RailBreakdownCard(rails = insights.breakdowns.byRail)
-                    }
-                }
-                
-                // Large Transactions
-                if (insights.largeTxns.isNotEmpty()) {
-                    item {
-                        LargeTransactionsCard(transactions = insights.largeTxns)
-                    }
-                }
-                
-                // Recurring Payments
-                if (insights.recurring.isNotEmpty()) {
-                    item {
-                        RecurringPaymentsCard(payments = insights.recurring)
-                    }
-                }
-                
-                // Notes
-                if (insights.notes.isNotBlank()) {
-                    item {
-                        NotesCard(notes = insights.notes)
-                    }
-                }
-            } else if (uiState.hasConfiguredKey) {
-                // Loading or no data state
-                item {
-                    NoInsightsCard(
-                        isLoading = uiState.isLoading,
-                        onRefresh = { viewModel.refreshInsights() }
+                IconButton(
+                    onClick = {
+                        if (userInput.trim().isNotEmpty()) {
+                            viewModel.sendMessage(userInput.trim())
+                            userInput = ""
+                        }
+                    },
+                    enabled = userInput.trim().isNotEmpty() && !uiState.isLoading
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Send,
+                        contentDescription = "Send",
+                        tint = if (userInput.trim().isNotEmpty() && !uiState.isLoading) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
                     )
                 }
             }
@@ -178,780 +235,340 @@ fun AiInsightsScreen(
 }
 
 @Composable
-fun StatusMessageCard(
-    errorMessage: String?,
-    successMessage: String?,
-    statusMessage: String?
-) {
-    val message = errorMessage ?: successMessage ?: statusMessage
-    val isError = errorMessage != null
-    val isSuccess = successMessage != null
-    
+fun WelcomeMessage() {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = when {
-                isError -> MaterialTheme.colorScheme.errorContainer
-                isSuccess -> MaterialTheme.colorScheme.primaryContainer
-                else -> MaterialTheme.colorScheme.secondaryContainer
-            }
-        )
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = when {
-                    isError -> Icons.Default.Error
-                    isSuccess -> Icons.Default.CheckCircle
-                    else -> Icons.Default.Info
-                },
-                contentDescription = null,
-                tint = when {
-                    isError -> MaterialTheme.colorScheme.error
-                    isSuccess -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSecondaryContainer
-                }
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = message ?: "",
-                style = MaterialTheme.typography.bodyMedium,
-                color = when {
-                    isError -> MaterialTheme.colorScheme.onErrorContainer
-                    isSuccess -> MaterialTheme.colorScheme.onPrimaryContainer
-                    else -> MaterialTheme.colorScheme.onSecondaryContainer
-                }
-            )
-        }
-    }
-}
-
-@Composable
-fun ApiKeySetupCard(
-    hasConfiguredKey: Boolean,
-    savedApiKey: String?,
-    savedCustomEndpoint: String?,
-    isUsingEncryptedStorage: Boolean,
-    onSaveApiKey: (String) -> Unit,
-    onSaveCustomEndpoint: (String) -> Unit,
-    onClearData: () -> Unit
-) {
-    val context = LocalContext.current
-    var showApiKeyInput by remember { mutableStateOf(false) }
-    var showEndpointInput by remember { mutableStateOf(false) }
-    var apiKeyInput by remember { mutableStateOf("") }
-    var endpointInput by remember { mutableStateOf("") }
-    
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (hasConfiguredKey) 
-                MaterialTheme.colorScheme.primaryContainer 
-            else 
-                MaterialTheme.colorScheme.surfaceVariant
-        )
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.padding(bottom = 8.dp)
             ) {
                 Icon(
-                    imageVector = if (hasConfiguredKey) Icons.Default.CheckCircle else Icons.Default.SmartToy,
+                    imageVector = Icons.Filled.Psychology,
                     contentDescription = null,
-                    tint = if (hasConfiguredKey) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(20.dp)
                 )
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (hasConfiguredKey) "AI Configuration" else "Setup AI Insights",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    text = "AI Assistant",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
             }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            if (!hasConfiguredKey) {
-                Text(
-                    text = "Connect your Google AI Studio API key or custom endpoint to get AI-powered financial insights.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                Button(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://aistudio.google.com/app/apikey"))
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.OpenInNew, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Create Google AI Studio API Key")
-                }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                OutlinedButton(
-                    onClick = { showApiKeyInput = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Key, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Paste API Key")
-                }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
-                OutlinedButton(
-                    onClick = { showEndpointInput = true },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Link, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Use Custom Endpoint")
-                }
-            } else {
-                Text(
-                    text = if (savedApiKey != null) {
-                        "API Key: ${savedApiKey.take(4)}${"*".repeat(savedApiKey.length - 8)}${savedApiKey.takeLast(4)}"
-                    } else {
-                        "Custom Endpoint: ${savedCustomEndpoint}"
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                
-                if (isUsingEncryptedStorage) {
-                    Text(
-                        text = "✓ Securely stored with encryption",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                
-                Spacer(modifier = Modifier.height(12.dp))
-                
-                OutlinedButton(
-                    onClick = onClearData,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Clear Configuration")
-                }
-            }
-        }
-    }
-    
-    // API Key Input Dialog
-    if (showApiKeyInput) {
-        AlertDialog(
-            onDismissRequest = { showApiKeyInput = false },
-            title = { Text("Enter API Key") },
-            text = {
-                Column {
-                    Text(
-                        text = "Paste your Google AI Studio API key (starts with AIza):",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    OutlinedTextField(
-                        value = apiKeyInput,
-                        onValueChange = { apiKeyInput = it },
-                        placeholder = { Text("AIza...") },
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Text,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (apiKeyInput.isNotBlank()) {
-                                    onSaveApiKey(apiKeyInput)
-                                    showApiKeyInput = false
-                                    apiKeyInput = ""
-                                }
-                            }
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (apiKeyInput.isNotBlank()) {
-                            onSaveApiKey(apiKeyInput)
-                            showApiKeyInput = false
-                            apiKeyInput = ""
-                        }
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showApiKeyInput = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-    
-    // Custom Endpoint Input Dialog
-    if (showEndpointInput) {
-        AlertDialog(
-            onDismissRequest = { showEndpointInput = false },
-            title = { Text("Enter Custom Endpoint") },
-            text = {
-                Column {
-                    Text(
-                        text = "Enter your custom AI endpoint URL:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    OutlinedTextField(
-                        value = endpointInput,
-                        onValueChange = { endpointInput = it },
-                        placeholder = { Text("https://your-endpoint.com/ai") },
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Uri,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                if (endpointInput.isNotBlank()) {
-                                    onSaveCustomEndpoint(endpointInput)
-                                    showEndpointInput = false
-                                    endpointInput = ""
-                                }
-                            }
-                        )
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (endpointInput.isNotBlank()) {
-                            onSaveCustomEndpoint(endpointInput)
-                            showEndpointInput = false
-                            endpointInput = ""
-                        }
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showEndpointInput = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun TutorialCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Text(
-                    text = "How to Setup AI Insights",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
             
             Text(
-                text = "Watch this tutorial to learn how to create and configure your Google AI Studio API key for personalized financial insights.",
+                text = "Hello! I'm your AI financial assistant. I can help you with:",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            // YouTube Tutorial Embed (placeholder)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayCircle,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Tutorial Video",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "Replace VIDEO_ID with actual YouTube video ID",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun InsightsOverviewCard(
-    insights: AiInsights,
-    lastUpdatedTime: String,
-    onRefresh: () -> Unit,
-    isLoading: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Financial Insights",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Updated $lastUpdatedTime",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                
-                Button(
-                    onClick = onRefresh,
-                    enabled = !isLoading
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                    } else {
-                        Icon(Icons.Default.Refresh, contentDescription = null)
-                    }
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (isLoading) "Refreshing..." else "Refresh")
-                }
-            }
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                InsightStat(
-                    label = "Total Spend",
-                    value = "₹${NumberFormat.getNumberInstance().format(insights.kpis.totalSpendInr)}"
-                )
-                InsightStat(
-                    label = "Transactions",
-                    value = "${insights.kpis.debitCount + insights.kpis.creditCount}"
-                )
-                InsightStat(
-                    label = "Largest",
-                    value = "₹${NumberFormat.getNumberInstance().format(insights.kpis.largestTxnAmount)}"
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun InsightStat(
-    label: String,
-    value: String
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-fun KpisCard(kpis: Kpis) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Key Metrics",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(
-                        text = "Debits",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = kpis.debitCount.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column {
-                    Text(
-                        text = "Credits",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = kpis.creditCount.toString(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Column {
-                    Text(
-                        text = "Largest Merchant",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = kpis.largestTxnMerchant,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-            
-            if (kpis.unusualSpendFlag) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Unusual spending detected",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun CategoryBreakdownCard(categories: List<CategoryBreakdown>) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Spending by Category",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            categories.forEach { category ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = category.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = "₹${NumberFormat.getNumberInstance().format(category.amount)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun RailBreakdownCard(rails: List<RailBreakdown>) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Payment Methods",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            rails.forEach { rail ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = rail.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = "₹${NumberFormat.getNumberInstance().format(rail.amount)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun LargeTransactionsCard(transactions: List<LargeTransaction>) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Large Transactions",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            LazyColumn {
-                items(transactions.take(5)) { transaction ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = transaction.merchant,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = transaction.date,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = "₹${NumberFormat.getNumberInstance().format(transaction.amount)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun RecurringPaymentsCard(payments: List<RecurringPayment>) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "Recurring Payments",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
-            )
-            
-            Spacer(modifier = Modifier.height(12.dp))
-            
-            LazyColumn {
-                items(payments.take(5)) { payment ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = payment.name,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Text(
-                                text = "Day ${payment.dayOfMonth} of month",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            text = "₹${NumberFormat.getNumberInstance().format(payment.amount)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun NotesCard(notes: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "AI Insights",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
             
             Spacer(modifier = Modifier.height(8.dp))
             
+            val suggestions = listOf(
+                "💡 Analyze your spending patterns",
+                "💰 Suggest budget optimizations", 
+                "📊 Identify unusual transactions",
+                "🎯 Set financial goals",
+                "📈 Track your financial progress"
+            )
+            
+            suggestions.forEach { suggestion ->
+                Text(
+                    text = suggestion,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
             Text(
-                text = notes,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                text = "Just ask me anything about your finances!",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }
 }
 
 @Composable
-fun NoInsightsCard(
-    isLoading: Boolean,
-    onRefresh: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
+fun ChatMessage(message: ChatMessage) {
+    val isUser = message.isUser
+    
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            if (isLoading) {
-                CircularProgressIndicator()
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "Analyzing your transactions...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
-                )
-            } else {
+        if (!isUser) {
+            // AI Avatar
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    imageVector = Icons.Default.Analytics,
+                    imageVector = Icons.Filled.Psychology,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = "No insights available",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Tap refresh to generate AI insights from your transaction data",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(onClick = onRefresh) {
-                    Icon(Icons.Default.Refresh, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Generate Insights")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+        
+        Card(
+            modifier = Modifier.widthIn(max = 280.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isUser) 
+                    MaterialTheme.colorScheme.primary 
+                else 
+                    MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(
+                topStart = 16.dp,
+                topEnd = 16.dp,
+                bottomStart = if (isUser) 16.dp else 4.dp,
+                bottomEnd = if (isUser) 4.dp else 16.dp
+            )
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp)
+            ) {
+                if (!isUser) {
+                    Text(
+                        text = "AI Assistant",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
                 }
+                
+                when (message.content) {
+                    is TextMessage -> {
+                        Text(
+                            text = message.content.text,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (isUser) 
+                                MaterialTheme.colorScheme.onPrimary 
+                            else 
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    is InsightsMessage -> {
+                        InsightsCard(insights = message.content.insights)
+                    }
+                    is SpendingAnalysisMessage -> {
+                        SpendingAnalysisCard(analysis = message.content.analysis)
+                    }
+                }
+            }
+        }
+        
+        if (isUser) {
+            Spacer(modifier = Modifier.width(8.dp))
+            // User Avatar
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondary),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }
 }
+
+@Composable
+fun LoadingMessage() {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Psychology,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        
+        Card(
+            modifier = Modifier.widthIn(max = 120.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            ),
+            shape = RoundedCornerShape(16.dp, 16.dp, 4.dp, 16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(16.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Thinking...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InsightsCard(insights: AiInsights) {
+    Column {
+        Text(
+            text = "📊 Financial Summary",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text(
+                    text = "₹${NumberFormat.getNumberInstance().format(insights.kpis.totalSpendInr)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Total Spend",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+            
+            Column {
+                Text(
+                    text = "${insights.kpis.debitCount}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "Transactions",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+        }
+        
+        if (insights.kpis.unusualSpendFlag) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "Unusual spending detected",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SpendingAnalysisCard(analysis: SpendingAnalysis) {
+    Column {
+        Text(
+            text = "💡 Spending Analysis",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        
+        analysis.insights.forEach { insight ->
+            Text(
+                text = "• $insight",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(vertical = 2.dp)
+            )
+        }
+        
+        if (analysis.recommendations.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "🎯 Recommendations:",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            analysis.recommendations.forEach { recommendation ->
+                Text(
+                    text = "• $recommendation",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 2.dp)
+                )
+            }
+        }
+    }
+}
+
+// Data classes for chat messages
+sealed class ChatMessageContent
+
+data class TextMessage(val text: String) : ChatMessageContent()
+data class InsightsMessage(val insights: AiInsights) : ChatMessageContent()
+data class SpendingAnalysisMessage(val analysis: SpendingAnalysis) : ChatMessageContent()
+
+data class ChatMessage(
+    val content: ChatMessageContent,
+    val isUser: Boolean,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class SpendingAnalysis(
+    val insights: List<String>,
+    val recommendations: List<String>
+)

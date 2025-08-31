@@ -6,7 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -23,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dheeraj.smartexpenses.ui.theme.*
 import kotlinx.coroutines.delay
 
 class SplashActivity : ComponentActivity() {
@@ -47,49 +47,41 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
     var logoVisible by remember { mutableStateOf(false) }
     var titleVisible by remember { mutableStateOf(false) }
     var subtitleVisible by remember { mutableStateOf(false) }
-    var madeInIndiaVisible by remember { mutableStateOf(false) }
-    var loadingVisible by remember { mutableStateOf(false) }
     
-    // Logo animation
+    // Professional logo animation
     val logoScale by animateFloatAsState(
-        targetValue = if (logoVisible) 1f else 0.5f,
-        animationSpec = tween(1000, easing = EaseOutBounce),
+        targetValue = if (logoVisible) 1f else 0.7f,
+        animationSpec = tween(800, easing = EaseOutCubic),
         label = "logo_scale"
     )
     
     val logoAlpha by animateFloatAsState(
         targetValue = if (logoVisible) 1f else 0f,
-        animationSpec = tween(1000),
+        animationSpec = tween(600, easing = EaseOutCubic),
         label = "logo_alpha"
     )
 
-    // Gradient background
+    // Professional gradient using app theme colors
     val gradient = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF2196F3), // Blue
-            Color(0xFF4CAF50)  // Green
+            PrimaryBlue,
+            PrimaryBlueLight
         )
     )
 
     LaunchedEffect(Unit) {
-        // Start animations sequence
-        delay(500)
+        // Quick, professional animation sequence
+        delay(200)
         logoVisible = true
         
-        delay(800)
+        delay(400)
         titleVisible = true
         
-        delay(600)
+        delay(300)
         subtitleVisible = true
         
-        delay(600)
-        madeInIndiaVisible = true
-        
-        delay(400)
-        loadingVisible = true
-        
-        // Wait for loading animation
-        delay(2500)
+        // Short duration - only 2.5 seconds total
+        delay(1500)
         
         // Navigate to main activity
         onSplashComplete()
@@ -105,10 +97,10 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo
+            // Clean, professional logo
             Card(
                 modifier = Modifier
-                    .size(120.dp)
+                    .size(100.dp)
                     .scale(logoScale)
                     .alpha(logoAlpha),
                 shape = CircleShape,
@@ -120,11 +112,11 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
                         .background(Color.White),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Simplified wallet icon
+                    // Professional wallet icon
                     Card(
-                        modifier = Modifier.size(60.dp),
+                        modifier = Modifier.size(50.dp),
                         shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF4CAF50))
+                        colors = CardDefaults.cardColors(containerColor = SecondaryGreen)
                     ) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -133,7 +125,7 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
                             Text(
                                 text = "₹",
                                 color = Color.White,
-                                fontSize = 24.sp,
+                                fontSize = 20.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -143,48 +135,29 @@ fun SplashScreen(onSplashComplete: () -> Unit) {
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // App Title
+            // Clean app title
             if (titleVisible) {
                 Text(
                     text = "SmartExpenses",
                     color = Color.White,
-                    fontSize = 32.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
                 )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
-            // Subtitle
+            // Professional subtitle
             if (subtitleVisible) {
                 Text(
-                    text = "Your Personal Expenses App",
-                    color = Color.White,
-                    fontSize = 16.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Made in India
-            if (madeInIndiaVisible) {
-                Text(
-                    text = "Built in India, for India 🇮🇳",
-                    color = Color.White,
-                    fontSize = 14.sp,
-                    fontStyle = FontStyle.Italic
-                )
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Loading indicator
-            if (loadingVisible) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.size(32.dp)
+                    text = "Your Personal Finance Manager",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
     }
 }
+
+

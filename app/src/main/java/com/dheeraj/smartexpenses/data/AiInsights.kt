@@ -7,6 +7,7 @@ import kotlinx.serialization.SerialName
 data class AiInsights(
     val kpis: Kpis,
     val breakdowns: Breakdowns,
+    @SerialName("large_txns")
     val largeTxns: List<LargeTransaction>,
     val recurring: List<RecurringPayment>,
     val notes: String
@@ -23,7 +24,7 @@ data class Kpis(
     @SerialName("largest_txn_amount")
     val largestTxnAmount: Double,
     @SerialName("largest_txn_merchant")
-    val largestTxnMerchant: String,
+    val largestTxnMerchant: String?,
     @SerialName("unusual_spend_flag")
     val unusualSpendFlag: Boolean
 )
@@ -38,7 +39,7 @@ data class Breakdowns(
 
 @Serializable
 data class CategoryBreakdown(
-    val name: String,
+    val name: String?,
     val amount: Double
 )
 
@@ -51,7 +52,7 @@ data class RailBreakdown(
 @Serializable
 data class LargeTransaction(
     val date: String, // YYYY-MM-DD
-    val merchant: String,
+    val merchant: String?,
     val amount: Double
 )
 
@@ -110,5 +111,5 @@ data class CustomEndpointRequest(
 
 @Serializable
 data class CustomEndpointResponse(
-    val insights: AiInsights
+    val insights: AiInsights? = null
 )

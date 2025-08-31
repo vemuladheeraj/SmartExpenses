@@ -23,6 +23,10 @@ import com.dheeraj.smartexpenses.data.amount
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeVm(app: Application) : AndroidViewModel(app) {
     
+    companion object {
+        const val KEY_LAST_SMS_TIMESTAMP = "last_sms_timestamp"
+    }
+    
     init {
         try {
             Log.d("HomeVm", "Initializing HomeViewModel...")
@@ -348,13 +352,93 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                 Log.d("HomeVm", "SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
                 println("SMS Import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
                 _isImporting.value = false
-                // Mark first-run import as completed
-                prefs.edit().putBoolean("initial_import_done", true).apply()
+                // Mark first-run import as completed and set initial timestamp
+                prefs.edit()
+                    .putBoolean("initial_import_done", true)
+                    .putLong(KEY_LAST_SMS_TIMESTAMP, System.currentTimeMillis())
+                    .apply()
 
                 // Background enrichment removed with LLM path
             } catch (e: Exception) {
                 // Log error but don't crash the app
                 Log.e("HomeVm", "Error during SMS import", e)
+                e.printStackTrace()
+                _isImporting.value = false
+            }
+        }
+    }
+
+    /** Import only new SMS messages since last import */
+    fun importNewSms() {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val lastTimestamp = prefs.getLong(KEY_LAST_SMS_TIMESTAMP, 0L)
+                
+                Log.d("HomeVm", "Starting incremental SMS import since timestamp: $lastTimestamp")
+                
+                var importedCount = 0
+                var skippedCount = 0
+                var latestTimestamp = lastTimestamp
+                
+                // Get SMS count since last import
+                val totalSms = SmsImporter.getSmsCountSince(ctx, lastTimestamp)
+                
+                Log.d("HomeVm", "Found $totalSms new SMS messages to process")
+                
+                if (totalSms == 0) {
+                    Log.d("HomeVm", "No new SMS messages found - skipping import")
+                    return@launch
+                }
+                
+                // Only show loading if there are actually new messages to process
+                _isImporting.value = true
+                _importProgress.value = 0 to totalSms
+                
+                SmsImporter.importSinceTimestamp(ctx, lastTimestamp,
+                    onProgress = { current, total ->
+                        _importProgress.value = current to total
+                        Log.d("HomeVm", "Processing new SMS $current/$total")
+                    }
+                ) { sender, body, ts ->
+                    launch {
+                        try {
+                            // Update latest timestamp
+                            if (ts > latestTimestamp) {
+                                latestTimestamp = ts
+                            }
+                            
+                            // Check if this SMS already exists
+                            val exists = dao.exists(sender, body, ts)
+                            if (exists == 0) {
+                                val transaction = SmsParser.parse(sender, body, ts)
+                                if (transaction != null) {
+                                    dao.insert(transaction)
+                                    importedCount++
+                                    Log.d("HomeVm", "Imported new SMS: ${transaction.merchant ?: "Unknown"} - ₹${transaction.amountMinor / 100}")
+                                } else {
+                                    Log.d("HomeVm", "SMS parsing failed for new SMS: $sender")
+                                }
+                            } else {
+                                skippedCount++
+                            }
+                        } catch (e: Exception) {
+                            Log.e("HomeVm", "Error processing new SMS", e)
+                        }
+                    }
+                }
+                
+                // Wait for processing to complete
+                kotlinx.coroutines.delay(1000)
+                
+                // Update last processed timestamp
+                prefs.edit().putLong(KEY_LAST_SMS_TIMESTAMP, latestTimestamp).apply()
+                
+                Log.d("HomeVm", "Incremental SMS import completed: $importedCount imported, $skippedCount skipped out of $totalSms total")
+                _isImporting.value = false
+                
+            } catch (e: Exception) {
+                Log.e("HomeVm", "Error during incremental SMS import", e)
                 e.printStackTrace()
                 _isImporting.value = false
             }
@@ -376,7 +460,10 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                 // If database is empty, clear the flag to ensure fresh import
                 if (existingCount == 0 && alreadyDone) {
                     Log.d("HomeVm", "Database is empty but flag shows import done. Clearing flag for fresh import.")
-                    prefs.edit().putBoolean("initial_import_done", false).apply()
+                    prefs.edit()
+                        .putBoolean("initial_import_done", false)
+                        .remove(KEY_LAST_SMS_TIMESTAMP)
+                        .apply()
                 }
                 
                 // Check again after potential flag reset
@@ -386,7 +473,9 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
                     Log.d("HomeVm", "Starting fresh SMS import. existingCount=$existingCount, alreadyDone=$alreadyDone")
                     importRecentSms(monthsBack)
                 } else {
-                    Log.d("HomeVm", "Skipping importIfFirstRun: already done and DB has $existingCount entries")
+                    Log.d("HomeVm", "Skipping fresh import, checking for new SMS messages")
+                    // Even if initial import is done, check for new SMS messages
+                    importNewSms()
                 }
             } catch (e: Exception) { 
                 Log.e("HomeVm", "Error in importIfFirstRun", e)
@@ -444,6 +533,12 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 dao.clearSmsTransactions()
+                // Reset import flags when clearing transactions
+                prefs.edit()
+                    .putBoolean("initial_import_done", false)
+                    .remove(KEY_LAST_SMS_TIMESTAMP)
+                    .apply()
+                Log.d("HomeVm", "Cleared SMS transactions and reset import flags")
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -457,16 +552,6 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             e.printStackTrace()
             0 to 0 // Return default values if database access fails
-        }
-    }
-    
-    /** Get all transactions for export */
-    suspend fun getAllTransactions(): List<Transaction> {
-        return try {
-            dao.getAllTransactions()
-        } catch (e: Exception) {
-            Log.e("HomeVm", "Error getting all transactions", e)
-            emptyList()
         }
     }
     
@@ -511,6 +596,11 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
             try {
                 // Clear existing SMS transactions
                 dao.clearSmsTransactions()
+                // Reset import flags
+                prefs.edit()
+                    .putBoolean("initial_import_done", false)
+                    .remove(KEY_LAST_SMS_TIMESTAMP)
+                    .apply()
                 // Import fresh
                 importRecentSms(monthsBack)
             } catch (e: Exception) {
@@ -541,6 +631,16 @@ class HomeVm(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             Log.e("HomeVm", "Error getting transaction by ID", e)
             null
+        }
+    }
+    
+    /** Get all transactions for export */
+    suspend fun getAllTransactions(): List<Transaction> {
+        return try {
+            dao.getAllTransactions()
+        } catch (e: Exception) {
+            Log.e("HomeVm", "Error getting all transactions", e)
+            emptyList()
         }
     }
     

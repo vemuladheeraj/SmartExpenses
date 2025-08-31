@@ -1,13 +1,16 @@
 package com.dheeraj.smartexpenses.notifications
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import com.dheeraj.smartexpenses.MainActivity
 import com.dheeraj.smartexpenses.R
 import com.dheeraj.smartexpenses.data.BudgetAnalysis
@@ -32,6 +35,28 @@ class SmartNotificationManager(private val context: Context) {
     
     init {
         createNotificationChannels()
+    }
+    
+    private fun hasNotificationPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true // For older versions, notification permission is granted by default
+        }
+    }
+    
+    private fun notifySafely(notificationId: Int, notification: android.app.Notification) {
+        if (hasNotificationPermission()) {
+            try {
+                NotificationManagerCompat.from(context).notify(notificationId, notification)
+            } catch (e: SecurityException) {
+                // Handle the case where permission is denied at runtime
+                // You might want to log this or show a message to the user
+            }
+        }
     }
     
     private fun createNotificationChannels() {
@@ -88,7 +113,7 @@ class SmartNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET_ALERTS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Budget Breach Alert!")
             .setContentText("${analysis.category} budget exceeded by ${currencyFormat.format(overAmount)}")
             .setStyle(NotificationCompat.BigTextStyle()
@@ -100,7 +125,7 @@ class SmartNotificationManager(private val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
         
-        NotificationManagerCompat.from(context).notify(
+        notifySafely(
             NOTIFICATION_BUDGET_BREACH + analysis.category.hashCode(),
             notification
         )
@@ -119,7 +144,7 @@ class SmartNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_BUDGET_ALERTS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Budget Warning")
             .setContentText("${analysis.category} budget: ${String.format("%.1f", analysis.percentageUsed)}% used")
             .setStyle(NotificationCompat.BigTextStyle()
@@ -131,7 +156,7 @@ class SmartNotificationManager(private val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
         
-        NotificationManagerCompat.from(context).notify(
+        notifySafely(
             NOTIFICATION_BUDGET_BREACH + analysis.category.hashCode() + 1000,
             notification
         )
@@ -149,7 +174,7 @@ class SmartNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_LARGE_TRANSACTIONS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Large Transaction Detected")
             .setContentText("${currencyFormat.format(transaction.amount)} - ${transaction.merchant ?: "Unknown"}")
             .setStyle(NotificationCompat.BigTextStyle()
@@ -161,7 +186,7 @@ class SmartNotificationManager(private val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
         
-        NotificationManagerCompat.from(context).notify(
+        notifySafely(
             NOTIFICATION_LARGE_TRANSACTION + transaction.id.toInt(),
             notification
         )
@@ -184,7 +209,7 @@ class SmartNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_SPENDING_PATTERNS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Unusual Spending Pattern")
             .setContentText("${category} spending is ${String.format("%.0f", percentage)}% higher than usual")
             .setStyle(NotificationCompat.BigTextStyle()
@@ -197,7 +222,7 @@ class SmartNotificationManager(private val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
         
-        NotificationManagerCompat.from(context).notify(
+        notifySafely(
             NOTIFICATION_SPENDING_PATTERN + category.hashCode(),
             notification
         )
@@ -220,7 +245,7 @@ class SmartNotificationManager(private val context: Context) {
         )
         
         val notification = NotificationCompat.Builder(context, CHANNEL_BILL_REMINDERS)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("Bill Payment Reminder")
             .setContentText("$billName due on $dueDate")
             .setStyle(NotificationCompat.BigTextStyle()
@@ -232,7 +257,7 @@ class SmartNotificationManager(private val context: Context) {
             .setContentIntent(pendingIntent)
             .build()
         
-        NotificationManagerCompat.from(context).notify(
+        notifySafely(
             NOTIFICATION_BILL_REMINDER + billName.hashCode(),
             notification
         )

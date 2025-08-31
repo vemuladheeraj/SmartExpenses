@@ -28,7 +28,8 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector,
 @Composable
 fun MainNavigation(
     homeVm: HomeVm,
-    onAddTransaction: () -> Unit
+    onAddTransaction: () -> Unit,
+    onSettingsChanged: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val screens = listOf(Screen.Home, Screen.Analytics, Screen.Budget, Screen.AiInsights, Screen.Settings)
@@ -88,7 +89,10 @@ fun MainNavigation(
                 AiInsightsScreen()
             }
             composable(Screen.Settings.route) {
-                SettingsScreen(homeVm = homeVm)
+                SettingsScreen(
+                    homeVm = homeVm,
+                    onSettingsChanged = onSettingsChanged
+                )
             }
             composable(Screen.TransactionList.route) {
                 TransactionListScreen(
